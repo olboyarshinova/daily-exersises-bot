@@ -14,6 +14,7 @@ bot.setMyCommands([
     {command: '/settime', description: '🕗  Установить время уведомлений'},
     {command: '/today', description: '🎥  Получить сегодняшнее видео'},
     {command: '/list', description: '📋  Список всех видео'},
+    {command: '/mytime', description: '⏰  Установленное время уведомлений'},
     {command: '/help', description: 'ℹ️  Помощь'},
 ]);
 
@@ -32,7 +33,7 @@ async function getSheetData() {
     try {
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId: GOOGLE_SHEETS_ID,
-            range: "A:Z",
+            range: "Зарядки!A:Z",
         });
 
         if (!response.data.values || response.data.values.length === 0) {
@@ -59,7 +60,7 @@ async function checkDatesAndSendMessages() {
     const data = await getSheetData();
 
     if (!data) {
-        console.log('Данные не получены 1.');
+        console.log('Данные не получены.');
         return;
     }
 
@@ -77,7 +78,6 @@ async function checkDatesAndSendMessages() {
     const rows = data.slice(1);
     console.log('Данные:', rows);
 
-    // Сегодняшняя дата в формате "DD.MM"
     const today = new Date().toLocaleDateString('ru-RU', {
         day: '2-digit',
         month: '2-digit',
@@ -90,11 +90,10 @@ async function checkDatesAndSendMessages() {
         const time = row[4];
         const url = row[7];
 
-
         if (date === today) {
             console.log('Найдено совпадение:', url);
 
-            db.all('SELECT chatId FROM users', (err, users) => {
+            db.all('SELECT chatId, notificationTime FROM users', (err, users) => {
                 if (err) {
                     console.error('Ошибка при получении пользователей:', err);
                     return;
@@ -113,7 +112,9 @@ async function checkDatesAndSendMessages() {
                             await saveCommentToSheet(msg.from.username, comment);
                             bot.sendMessage(user.chatId, 'Спасибо за комментарий!');
                         });
-                    }, 3000); // заменить на videoTime !!!
+                    // }, videoTime);
+                    }, 3000);
+                    // заменить на videoTime !!!
                 });
             });
 
@@ -150,6 +151,7 @@ async function saveCommentToSheet(userName, comment) {
 
 bot.onText(/\/settime (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
+    const username = msg.chat.username;
     const time = match[1]; // Время в формате "HH:mm"
 
     if (!match || !match[1]) {
@@ -166,16 +168,35 @@ bot.onText(/\/settime (.+)/, (msg, match) => {
 
     // Преобразуем время в формат cron
     const [hours, minutes] = time.split(':');
-    // Обновляем время
-    scheduledTime = `${minutes} ${hours} * * *`;
-    // Останавливаем старую задачу
-    scheduledTask.stop();
-    // Запускаем новую задачу с обновленным временем
-    scheduledTask = cron.schedule(scheduledTime, () => {
-        checkDatesAndSendMessages();
-    });
+    const scheduledTime = `${minutes} ${hours} * * *`;
 
-    bot.sendMessage(chatId, `Время уведомлений изменено на ${time}.`);
+    // Обновляем время уведомлений в базе данных
+    db.run(
+        `INSERT INTO users (chatId, username, notificationTime) VALUES (?, ?, ?)
+         ON CONFLICT(chatId) DO UPDATE SET notificationTime = ?`,
+        [chatId, username, time, time],
+        function (err) {
+            if (err) {
+                console.error(err);
+                bot.sendMessage(chatId, 'Произошла ошибка при сохранении времени уведомлений.');
+                return;
+            }
+
+            // Останавливаем старую задачу
+            if (scheduledTask) {
+                scheduledTask.stop();
+            }
+
+            // Запускаем новую задачу с обновленным временем
+            scheduledTask = cron.schedule(scheduledTime, () => {
+                console.log('Запуск новой задачи с обновленным временем')
+                checkDatesAndSendMessages();
+            });
+
+            bot.sendMessage(chatId, `Время уведомлений изменено на ${time}.`);
+            console.log(`Время уведомлений пользователя ${username} изменено на ${time}.`)
+        }
+    );
 });
 
 bot.onText(/\/settime/, (msg, match) => {
@@ -273,20 +294,28 @@ bot.onText(/\/start/, (msg) => {
     const lastName = msg.from.last_name;
 
     db.run(
-        'INSERT OR IGNORE INTO users (chatId, username, firstName, lastName) VALUES (?, ?, ?, ?)',
-        [chatId, username, firstName, lastName],
+        'INSERT OR IGNORE INTO users (chatId, username, firstName, lastName, notificationTime) VALUES (?, ?, ?, ?, ?)',
+        [chatId, username, firstName, lastName, null], // Используем null для notificationTime
         (err) => {
             if (err) {
-                console.error('err 1', err.message);
+                console.error('Ошибка при сохранении данных:', err.message);
                 return bot.sendMessage(chatId, 'Произошла ошибка при сохранении ваших данных.');
             }
 
             console.log(`Пользователь ${username} добавлен в базу данных`);
 
-            bot.sendMessage(
-                chatId,
-                `Привет, ${firstName}! Добро пожаловать! Бот запущен. Используйте /settime HH:mm для настройки времени уведомлений. Время по умолчанию 7:00`,
-            );
+            db.get('SELECT notificationTime FROM users WHERE chatId = ?', [chatId], (err, row) => {
+                if (err) {
+                    return console.error('Ошибка при получении времени уведомлений:', err.message);
+                }
+
+                const notificationTime = row ? row.notificationTime : '07:00'; // По умолчанию 7:00
+
+                bot.sendMessage(
+                    chatId,
+                    `Привет, ${firstName}! Добро пожаловать! Бот запущен. Используйте /settime HH:mm для настройки времени уведомлений. Текущее время уведомлений: ${notificationTime}`,
+                );
+            });
         }
     );
 });
@@ -295,25 +324,26 @@ bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
     const helpText = `
         Доступные команды:
-        /start - Запустить/обновить бота
-        /settime HH:mm - Установить время уведомлений
-        /today - Получить сегодняшнее видео
-        /list - Список всех видео
-        /help - Показать это сообщение
+/start - Запустить/обновить бота
+/settime HH:mm - Установить время уведомлений
+/today - Получить сегодняшнее видео
+/list - Список всех видео
+/mytime - Установленное время уведомлений
+/help - Показать это сообщение
     `;
     bot.sendMessage(chatId, helpText);
 });
 
-bot.onText(/\/me/, (msg) => {
+bot.onText(/\/mytime/, (msg) => {
     const chatId = msg.chat.id;
 
     db.get('SELECT * FROM users WHERE chatId = ?', [chatId], (err, row) => {
         if (err) {
-            return console.error('err 2', err.message);
+            return console.error('Ошибка при получении данных:', err.message);
         }
 
         if (row) {
-            bot.sendMessage(chatId, `Ваш username: ${row.username}`);
+            bot.sendMessage(chatId, `Время уведомлений: ${row.notificationTime || '07:00'}`);
         } else {
             bot.sendMessage(chatId, 'Вы не зарегистрированы.');
         }

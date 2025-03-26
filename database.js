@@ -8,7 +8,8 @@ db.serialize(() => {
             chatId INTEGER UNIQUE,
             username TEXT,
             firstName TEXT,
-            lastName TEXT
+            lastName TEXT,
+            notificationTime TEXT
         )
     `);
 });
