@@ -1,6 +1,5 @@
 const {google} = require('googleapis');
 const TelegramBot = require('node-telegram-bot-api');
-const cron = require('node-cron');
 const db = require('./database');
 
 const TELEGRAM_BOT_TOKEN = '8196294514:AAEusG4ywhEDhlfksAO4her-aCNl2Z-Z5GY';
@@ -23,17 +22,17 @@ const auth = new google.auth.GoogleAuth({
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
 });
 const sheets = google.sheets({version: 'v4', auth});
+const userStates = {};
+const userVideoState = {};
+const userTimers = {};
 
-let scheduledTime = '0 7 * * *'; // По умолчанию: 7:00 утра
-let scheduledTask = cron.schedule(scheduledTime, () => {
-    checkDatesAndSendMessages();
-});
+setInterval(checkAndSendNotifications, 30000);
 
 async function getSheetData() {
     try {
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId: GOOGLE_SHEETS_ID,
-            range: "Зарядки!A:Z",
+            range: 'Зарядки (тест)!A:Z',
         });
 
         if (!response.data.values || response.data.values.length === 0) {
@@ -48,164 +47,362 @@ async function getSheetData() {
     }
 }
 
-function transposeData(data) {
-    return data[0].map((_, colIndex) => data.map(row => row[colIndex]));
+async function checkAndSendNotifications() {
+    try {
+        console.log('Запуск проверки уведомлений...');
+        const now = new Date();
+        const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+
+        const hasVideoToday = await checkForTodayVideo();
+
+        if (!hasVideoToday) {
+            console.log('На сегодня видео не найдено');
+            return;
+        }
+
+        const rows = await new Promise((resolve, reject) => {
+            db.all(`SELECT DISTINCT chatId FROM users WHERE notificationTime = ?`, [currentTime], (err, rows) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows || []);
+                }
+            });
+        });
+
+        console.log(`Найдено ${rows.length} пользователей для уведомления в ${currentTime}`);
+
+        await Promise.all(rows.map(row => sendVideoNotification(row.chatId)));
+
+    } catch (error) {
+        console.error('Ошибка в checkAndSendNotifications:', error);
+    }
 }
 
-function sendMessage(chatId, message) {
-    bot.sendMessage(chatId, message);
-}
-
-async function checkDatesAndSendMessages() {
+async function checkForTodayVideo() {
     const data = await getSheetData();
 
     if (!data) {
-        console.log('Данные не получены.');
-        return;
+        return false;
     }
-
-    const transposedData = transposeData(data);
-    console.log('Транспонированные данные:', transposedData);
-
-    const columnNames = transposedData[0];
-    console.log('Названия колонок:', columnNames);
-
-    if (!columnNames || columnNames.length === 0) {
-        console.log('Заголовки колонок отсутствуют.');
-        return;
-    }
-
-    const rows = data.slice(1);
-    console.log('Данные:', rows);
 
     const today = new Date().toLocaleDateString('ru-RU', {
         day: '2-digit',
         month: '2-digit',
     }).replace(/\./g, '.');
 
-    console.log('Сегодняшняя дата:', today);
+    return data.some(row => row[0] === today);
+}
 
-    for (const row of rows) {
-        const date = row[0];
-        const time = row[4];
-        const url = row[7];
-
-        if (date === today) {
-            console.log('Найдено совпадение:', url);
-
-            db.all('SELECT chatId, notificationTime FROM users', (err, users) => {
-                if (err) {
-                    console.error('Ошибка при получении пользователей:', err);
-                    return;
-                }
-
-                const videoTime = timeToMilliseconds(time)
-                console.log('videoTime', videoTime)
-
-                users.forEach(user => {
-                    sendMessage(user.chatId, `Сегодняшнее видео: ${url}`);
-
-                    setTimeout(() => {
-                        bot.sendMessage(user.chatId, 'Видео закончилось. Напиши свой комментарий:');
-                        bot.once('message', async (msg) => {
-                            const comment = msg.text;
-                            await saveCommentToSheet(msg.from.username, comment);
-                            bot.sendMessage(user.chatId, 'Спасибо за комментарий!');
-                        });
-                    // }, videoTime);
-                    }, 3000);
-                    // заменить на videoTime !!!
-                });
-            });
-
-            break;
+async function sendVideoNotification(chatId) {
+    try {
+        const data = await getSheetData();
+        if (!data?.length) {
+            console.log('Нет данных из таблицы');
+            return;
         }
+
+        const today = new Date().toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+        }).replace(/\./g, '.');
+
+        const todayVideo = data.find(row => row[0] === today);
+
+        if (!todayVideo) {
+            console.log('Видео на сегодня не найдено');
+            return;
+        }
+
+        const [date, , , , time, , , url] = todayVideo;
+
+        if (await checkIfVideoSentToday(chatId, date)) {
+            console.log(`Видео уже отправлено ${chatId} сегодня`);
+            return;
+        }
+
+        await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}`);
+        await markVideoAsSent(chatId, date);
+
+        const videoDurationMs = timeToMilliseconds(time);
+
+        if (!videoDurationMs || isNaN(videoDurationMs)) {
+            console.error('Некорректное время видео');
+            return;
+        }
+
+        const reminderTime = videoDurationMs + 60000;
+
+        if (userTimers[chatId]) {
+            clearTimeout(userTimers[chatId]);
+            delete userTimers[chatId];
+        }
+
+        userTimers[chatId] = setTimeout(async () => {
+            try {
+                await bot.sendMessage(
+                    chatId,
+                    'Вы можете оставить комментарий к видео, используя команду /comment'
+                );
+
+                userVideoState[chatId] = {
+                    videoUrl: url,
+                    date: date
+                };
+
+            } catch (error) {
+                console.error('Ошибка при отправке напоминания:', error);
+            }
+        }, reminderTime);
+
+    } catch (error) {
+        console.error('Ошибка в sendVideoNotification:', error);
     }
 }
 
-function timeToMilliseconds(time) {
-    const [hours, minutes] = time.split(':').map(Number);
-    const hoursInMs = hours * 3_600_000;
-    const minutesInMs = minutes * 60_000;
+function timeToMilliseconds(timeStr) {
+    if (!timeStr) {
+        return 0;
+    }
 
-    return hoursInMs + minutesInMs;
+    try {
+        const parts = timeStr.split(':');
+
+        if (parts.length === 2) {
+            const hours = parseInt(parts[0]) || 0;
+            const minutes = parseInt(parts[1]) || 0;
+            return (hours * 3600 + minutes * 60) * 1000; // Секунды = 0
+        } else if (parts.length === 3) {
+            const hours = parseInt(parts[0]) || 0;
+            const minutes = parseInt(parts[1]) || 0;
+            const seconds = parseInt(parts[2]) || 0;
+            return (hours * 3600 + minutes * 60 + seconds) * 1000;
+        } else {
+            console.error('Неверный формат времени:', timeStr);
+            return 0;
+        }
+    } catch (error) {
+        console.error('Ошибка преобразования времени:', error);
+        return 0;
+    }
 }
 
-async function saveCommentToSheet(userName, comment) {
-    console.log(userName, comment)
+async function checkIfVideoSentToday(chatId, date) {
+    return new Promise((resolve, reject) => {
+        db.get(
+            `SELECT 1 FROM sent_videos WHERE chatId = ? AND date = ?`,
+            [chatId, date],
+            (err, row) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(!!row);
+                }
+            }
+        );
+    });
+}
+
+async function markVideoAsSent(chatId, date) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `INSERT OR IGNORE INTO sent_videos (chatId, date) VALUES (?, ?)`,
+            [chatId, date],
+            function (err) {
+                if (err) {
+                    console.error('Ошибка при отметке видео:', err);
+                    reject(err);
+                } else {
+                    if (this.changes > 0) {
+                        console.log(`Отмечено отправленное видео для ${chatId}`);
+                    }
+
+                    resolve();
+                }
+            }
+        );
+    });
+}
+
+function waitForUserComment(chatId, timeout) {
+    return new Promise((resolve) => {
+        const listener = (msg) => {
+            if (msg.chat.id === chatId && !msg.text.startsWith('/')) {
+                cleanup();
+                resolve(msg);
+            }
+        };
+
+        const timer = setTimeout(() => {
+            cleanup();
+            resolve(null);
+        }, timeout);
+
+        const cleanup = () => {
+            bot.removeListener('message', listener);
+            clearTimeout(timer);
+        };
+
+        bot.on('message', listener);
+    });
+}
+
+async function saveCommentToSheet(userId, userName, comment) {
+    console.log(`Сохранение комментария для userId:${userId}`);
+
     try {
-        const response = await sheets.spreadsheets.values.append({
+        const todayFormatted = new Date().toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit'
+        });
+        const sheetName = "Зарядки (тест)";
+        const firstName = (userName || 'User').split(' ')[0];
+        const columnTitle = `Отзыв ${firstName} (${userId})`;
+        const valuesResponse = await sheets.spreadsheets.values.get({
             spreadsheetId: GOOGLE_SHEETS_ID,
-            range: 'A:Z',
-            valueInputOption: 'RAW',
-            resource: {
-                values: [[userName, comment]],
-            },
+            range: `${sheetName}!A:Z`,
+        });
+        const rows = valuesResponse.data.values || [];
+
+        let todayRowNum = rows.findIndex(row => row[0] === todayFormatted) + 1;
+
+        if (todayRowNum === 0) {
+            await sheets.spreadsheets.values.append({
+                spreadsheetId: GOOGLE_SHEETS_ID,
+                range: `${sheetName}!A:A`,
+                valueInputOption: 'USER_ENTERED',
+                resource: {values: [[todayFormatted]]}
+            });
+            todayRowNum = rows.length + 1;
+        }
+
+        let userColumnLetter = 'B';
+
+        if (rows[0]) {
+            for (let i = 1; i < rows[0].length; i++) {
+                if (rows[0][i] === columnTitle) {
+                    userColumnLetter = getColumnLetter(i + 1);
+                    break;
+                }
+            }
+        }
+
+        if (userColumnLetter === 'B' && rows[0]?.length > 1) {
+            userColumnLetter = getColumnLetter(rows[0].length + 1);
+
+            await sheets.spreadsheets.values.update({
+                spreadsheetId: GOOGLE_SHEETS_ID,
+                range: `${sheetName}!${userColumnLetter}1`,
+                valueInputOption: 'USER_ENTERED',
+                resource: {values: [[columnTitle]]}
+            });
+        }
+
+        const range = `${sheetName}!${userColumnLetter}${todayRowNum}`;
+
+        await sheets.spreadsheets.values.update({
+            spreadsheetId: GOOGLE_SHEETS_ID,
+            range: range,
+            valueInputOption: 'USER_ENTERED',
+            resource: {values: [[comment]]}
         });
 
-        console.log('Комментарий сохранен:', response.data);
+        console.log(`Комментарий сохранен в ${range}`);
+        return true;
+
     } catch (error) {
-        console.error('Ошибка при сохранении комментария:', error);
+        console.error('Ошибка сохранения:', error);
+        throw new Error('Не удалось сохранить комментарий');
     }
 }
 
-bot.onText(/\/settime (.+)/, (msg, match) => {
+function getColumnLetter(columnIndex) {
+    let letter = '';
+
+    while (columnIndex > 0) {
+        const remainder = (columnIndex - 1) % 26;
+        letter = String.fromCharCode(65 + remainder) + letter;
+        columnIndex = Math.floor((columnIndex - 1) / 26);
+    }
+    return letter || 'A';
+}
+
+bot.onText(/\/settime$/, (msg) => {
     const chatId = msg.chat.id;
-    const username = msg.chat.username;
-    const time = match[1]; // Время в формате "HH:mm"
 
-    if (!match || !match[1]) {
-        bot.sendMessage(chatId, 'Необходимо указать время в формате "HH:mm", например, 09:00 или 16:20.');
-        return;
+    bot.sendMessage(chatId, 'Выберите время уведомлений:', {
+        reply_markup: {
+            inline_keyboard: [
+                [{text: "07:00", callback_data: "settime_07:00"}],
+                [{text: "08:00", callback_data: "settime_08:00"}],
+                [{text: "09:00", callback_data: "settime_09:00"}],
+                [{text: "12:00", callback_data: "settime_12:00"}],
+                [{text: "15:00", callback_data: "settime_15:00"}],
+                [{text: "18:00", callback_data: "settime_18:00"}],
+                [{text: "Другое время...", callback_data: "settime_custom"}],
+            ]
+        }
+    });
+});
+
+bot.on('callback_query', (query) => {
+    const chatId = query.message.chat.id;
+    const data = query.data;
+
+    if (data.startsWith('settime_')) {
+        const time = data.split('_')[1];
+
+        if (time === 'custom') {
+            bot.editMessageReplyMarkup(
+                {inline_keyboard: []},
+                {chat_id: chatId, message_id: query.message.message_id}
+            );
+            bot.sendMessage(chatId, 'Введите время вручную в формате HH:mm (например, 09:30).');
+            bot.answerCallbackQuery(query.id);
+
+            userStates[chatId] = {waitingForTimeInput: true};
+            return;
+        }
+
+        saveNotificationTime(chatId, time, query.id);
     }
+});
 
-    const timePattern = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+bot.on('text', (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
 
-    if (!timePattern.test(time)) {
-        bot.sendMessage(chatId, 'Неправильный формат времени. Используйте формат HH:mm, например, 09:00 или 16:20.');
-        return;
+    if (userStates[chatId] && userStates[chatId].waitingForTimeInput) {
+        const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+
+        if (timeRegex.test(text)) {
+            saveNotificationTime(chatId, text);
+            delete userStates[chatId];
+        } else {
+            bot.sendMessage(chatId, 'Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 09:30)');
+        }
     }
+});
 
-    // Преобразуем время в формат cron
-    const [hours, minutes] = time.split(':');
-    const scheduledTime = `${minutes} ${hours} * * *`;
-
-    // Обновляем время уведомлений в базе данных
+function saveNotificationTime(chatId, time, callbackQueryId = null) {
     db.run(
-        `INSERT INTO users (chatId, username, notificationTime) VALUES (?, ?, ?)
-         ON CONFLICT(chatId) DO UPDATE SET notificationTime = ?`,
-        [chatId, username, time, time],
-        function (err) {
+        `INSERT OR REPLACE INTO users (chatId, notificationTime) VALUES (?, ?)`,
+        [chatId, time],
+        (err) => {
+            if (callbackQueryId) {
+                bot.answerCallbackQuery(callbackQueryId);
+            }
+
             if (err) {
                 console.error(err);
-                bot.sendMessage(chatId, 'Произошла ошибка при сохранении времени уведомлений.');
+                bot.sendMessage(chatId, 'Произошла ошибка при сохранении времени.');
                 return;
             }
 
-            // Останавливаем старую задачу
-            if (scheduledTask) {
-                scheduledTask.stop();
-            }
-
-            // Запускаем новую задачу с обновленным временем
-            scheduledTask = cron.schedule(scheduledTime, () => {
-                console.log('Запуск новой задачи с обновленным временем')
-                checkDatesAndSendMessages();
-            });
-
-            bot.sendMessage(chatId, `Время уведомлений изменено на ${time}.`);
-            console.log(`Время уведомлений пользователя ${username} изменено на ${time}.`)
+            bot.sendMessage(chatId, `Теперь уведомления будут приходить в ${time}.`);
         }
     );
-});
-
-bot.onText(/\/settime/, (msg, match) => {
-    const chatId = msg.chat.id;
-
-    if (match.input === '/settime') {
-        bot.sendMessage(chatId, 'Укажите /settime вместе со временем в формате "HH:mm", например, "/settime 09:00".');
-    }
-});
+}
 
 bot.onText(/\/today/, async (msg) => {
     const chatId = msg.chat.id;
@@ -304,28 +501,56 @@ bot.onText(/\/start/, (msg) => {
 
             console.log(`Пользователь ${username} добавлен в базу данных`);
 
-            db.get('SELECT notificationTime FROM users WHERE chatId = ?', [chatId], (err, row) => {
+            db.get('SELECT notificationTime FROM users WHERE chatId = ?', [chatId], async (err, row) => {
                 if (err) {
                     return console.error('Ошибка при получении времени уведомлений:', err.message);
                 }
 
                 const notificationTime = row ? row.notificationTime : '07:00'; // По умолчанию 7:00
 
+                await resetVideoSentStatus(chatId);
+                await updateUserInDatabase(chatId, username, firstName, lastName);
                 bot.sendMessage(
                     chatId,
-                    `Привет, ${firstName}! Добро пожаловать! Бот запущен. Используйте /settime HH:mm для настройки времени уведомлений. Текущее время уведомлений: ${notificationTime}`,
+                    `Привет, ${firstName}! Добро пожаловать! Используйте /settime для настройки времени уведомлений. Текущее время уведомлений: ${notificationTime}.`,
                 );
             });
         }
     );
 });
 
+async function resetVideoSentStatus(chatId) {
+    const today = new Date().toLocaleDateString('ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+    }).replace(/\./g, '.');
+
+    return new Promise((resolve, reject) => {
+        db.run(`DELETE FROM sent_videos WHERE chatId = ? AND date = ?`, [chatId, today], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
+async function updateUserInDatabase(chatId, username, firstName, lastName) {
+    return new Promise((resolve, reject) => {
+        db.run(`
+            INSERT OR REPLACE INTO users (chatId, username, firstName, lastName) 
+            VALUES (?, ?, ?, ?)
+        `, [chatId, username, firstName, lastName], (err) => {
+            if (err) reject(err);
+            else resolve();
+        });
+    });
+}
+
 bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
     const helpText = `
         Доступные команды:
 /start - Запустить/обновить бота
-/settime HH:mm - Установить время уведомлений
+/settime - Установить время уведомлений
 /today - Получить сегодняшнее видео
 /list - Список всех видео
 /mytime - Установленное время уведомлений
@@ -348,4 +573,31 @@ bot.onText(/\/mytime/, (msg) => {
             bot.sendMessage(chatId, 'Вы не зарегистрированы.');
         }
     });
+});
+
+bot.onText(/\/comment/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    try {
+        await bot.sendMessage(chatId, 'Пожалуйста, напишите ваш комментарий к видео:');
+
+        const response = await waitForUserComment(chatId, 300000);
+
+        if (response && response.text) {
+            await saveCommentToSheet(
+                response.from.id,
+                response.from.first_name || '',
+                response.text,
+                userVideoState[chatId].date,
+                userVideoState[chatId].videoUrl
+            );
+
+            await bot.sendMessage(chatId, 'Спасибо за ваш комментарий!');
+
+            delete userVideoState[chatId];
+        }
+    } catch (error) {
+        console.error('Ошибка при обработке комментария:', error);
+        await bot.sendMessage(chatId, 'Произошла ошибка при сохранении комментария.');
+    }
 });
