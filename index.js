@@ -357,29 +357,52 @@ bot.on('callback_query', (query) => {
                 {inline_keyboard: []},
                 {chat_id: chatId, message_id: query.message.message_id}
             );
-            bot.sendMessage(chatId, 'Введите время вручную в формате HH:mm (например, 09:30).');
+            bot.sendMessage(chatId, 'Введите время вручную в формате HH:mm (например 9:30).');
             bot.answerCallbackQuery(query.id);
 
             userStates[chatId] = {waitingForTimeInput: true};
             return;
         }
 
-        saveNotificationTime(chatId, time, query.id);
+        bot.editMessageReplyMarkup(
+            {inline_keyboard: []},
+            {chat_id: chatId, message_id: query.message.message_id},
+        ).then(() => {
+            saveNotificationTime(chatId, time, query.id);
+        }).catch(error => {
+            console.error('Ошибка при закрытии меню:', error);
+            saveNotificationTime(chatId, time, query.id);
+        });
     }
 });
 
 bot.on('text', (msg) => {
     const chatId = msg.chat.id;
-    const text = msg.text;
+    const text = msg.text.trim();
+
+    if (text === '/start') {
+        return;
+    }
 
     if (userStates[chatId] && userStates[chatId].waitingForTimeInput) {
-        const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+        const timeRegex = /^(\d{1,2}):(\d{2})$/;
+        const match = text.match(timeRegex);
 
-        if (timeRegex.test(text)) {
-            saveNotificationTime(chatId, text);
-            delete userStates[chatId];
+        if (match) {
+            let hours = parseInt(match[1], 10);
+            let minutes = parseInt(match[2], 10);
+
+            if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+                const formattedTime =
+                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+
+                saveNotificationTime(chatId, formattedTime, null);
+                delete userStates[chatId];
+            } else {
+                bot.sendMessage(chatId, 'Неверное время. Часы должны быть от 0 до 23, а минуты от 0 до 59.');
+            }
         } else {
-            bot.sendMessage(chatId, 'Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 09:30)');
+            bot.sendMessage(chatId, 'Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)');
         }
     }
 });
@@ -399,6 +422,7 @@ function saveNotificationTime(chatId, time, callbackQueryId = null) {
                 return;
             }
 
+            console.log(`Для пользователя ${chatId} время уведомлений изменено на ${time}.`)
             bot.sendMessage(chatId, `Теперь уведомления будут приходить в ${time}.`);
         }
     );
