@@ -10,7 +10,7 @@ db.serialize(() => {
             username TEXT,
             firstName TEXT,
             lastName TEXT,
-            notificationTime TEXT
+            notificationTime TEXT DEFAULT '07:00'
         )
     `);
 

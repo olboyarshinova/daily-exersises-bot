@@ -516,7 +516,7 @@ bot.onText(/\/start/, (msg) => {
 
     db.run(
         'INSERT OR IGNORE INTO users (chatId, username, firstName, lastName, notificationTime) VALUES (?, ?, ?, ?, ?)',
-        [chatId, username, firstName, lastName, null], // Используем null для notificationTime
+        [chatId, username, firstName, lastName, '07:00'],
         (err) => {
             if (err) {
                 console.error('Ошибка при сохранении данных:', err.message);
@@ -530,10 +530,11 @@ bot.onText(/\/start/, (msg) => {
                     return console.error('Ошибка при получении времени уведомлений:', err.message);
                 }
 
-                const notificationTime = row ? row.notificationTime : '07:00'; // По умолчанию 7:00
+                const notificationTime = row?.notificationTime || '07:00';
 
                 await resetVideoSentStatus(chatId);
                 await updateUserInDatabase(chatId, username, firstName, lastName);
+
                 bot.sendMessage(
                     chatId,
                     `Привет, ${firstName}! Добро пожаловать! Используйте /settime для настройки времени уведомлений. Текущее время уведомлений: ${notificationTime}.`,
@@ -560,9 +561,9 @@ async function resetVideoSentStatus(chatId) {
 async function updateUserInDatabase(chatId, username, firstName, lastName) {
     return new Promise((resolve, reject) => {
         db.run(`
-            INSERT OR REPLACE INTO users (chatId, username, firstName, lastName) 
-            VALUES (?, ?, ?, ?)
-        `, [chatId, username, firstName, lastName], (err) => {
+            INSERT OR REPLACE INTO users (chatId, username, firstName, lastName, notificationTime) 
+            VALUES (?, ?, ?, ?, ?)
+        `, [chatId, username, firstName, lastName, '07:00'], (err) => {
             if (err) reject(err);
             else resolve();
         });
@@ -613,7 +614,7 @@ bot.onText(/\/comment/, async (msg) => {
                 response.from.first_name || '',
                 response.text,
                 userVideoState[chatId].date,
-                userVideoState[chatId].videoUrl
+                userVideoState[chatId].videoUrl,
             );
 
             await bot.sendMessage(chatId, 'Спасибо за ваш комментарий!');
