@@ -113,14 +113,20 @@ async function sendVideoNotification(chatId) {
             return;
         }
 
-        const [date, , , , time, , , url] = todayVideo;
+        const [date, , , author, time, type, level, url, comment] = todayVideo;
 
         if (await checkIfVideoSentToday(chatId, date)) {
             console.log(`Видео уже отправлено ${chatId} сегодня`);
             return;
         }
 
-        await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}`);
+        await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
+Автор: ${author}
+Время: ${time}
+Направление: ${type}
+Сложность: ${level}
+ВПН: ${url.includes('youtu') ? 'нужен' : 'не нужен'}
+${comment ? `Комментарий: ${comment}` : ''}`);
         await markVideoAsSent(chatId, date);
 
         const videoDurationMs = timeToMilliseconds(time);
@@ -454,11 +460,23 @@ bot.onText(/\/today/, async (msg) => {
     }).replace(/\./g, '.');
 
     for (const row of rows) {
-        const date = row[0];
-        const url = row[7];
+        const [date, , , author, time, type, level, url, comment] = row;
+        const todayVideo = data.find(row => row[0] === today);
+
+        if (!todayVideo) {
+            console.log('Видео на сегодня не найдено');
+            return;
+        }
 
         if (date === today) {
-            bot.sendMessage(chatId, `Сегодняшнее видео: ${url}`);
+            bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
+Автор: ${author}
+Время: ${time}
+Направление: ${type}
+Сложность: ${level}
+ВПН: ${url.includes('youtu') ? 'нужен' : 'не нужен'}
+${comment ? `Комментарий: ${comment}` : ''}`);
+
             return;
         }
     }
@@ -569,7 +587,7 @@ async function resetVideoSentStatus(chatId) {
 async function updateUserInDatabase(chatId, username, firstName, lastName) {
     return new Promise((resolve, reject) => {
         db.run(`
-            INSERT OR REPLACE INTO users (chatId, username, firstName, lastName, notificationTime) 
+            INSERT OR REPLACE INTO users (chatId, username, firstName, lastName, notificationTime)
             VALUES (?, ?, ?, ?, ?)
         `, [chatId, username, firstName, lastName, '07:00'], (err) => {
             if (err) {
