@@ -122,9 +122,9 @@ async function sendVideoNotification(chatId) {
 
         await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
 Автор: ${author}
-Время: ${time}
+Длительность: ${time}
 Направление: ${type}
-Сложность: ${level}
+Сложность: ${getDifficultyStars(level)}
 ВПН: ${url.includes('youtu') ? 'нужен' : 'не нужен'}
 ${comment ? `Комментарий: ${comment}` : ''}`);
         await markVideoAsSent(chatId, date);
@@ -164,6 +164,14 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
         console.error('Ошибка в sendVideoNotification:', error);
     }
 }
+
+const getDifficultyStars = (level) => {
+    const maxLevel = 5;
+    const activeStar = '⭐';
+    const inactiveStar = '☆';
+
+    return activeStar.repeat(level) + inactiveStar.repeat(maxLevel - level);
+};
 
 function timeToMilliseconds(timeStr) {
     if (!timeStr) {
@@ -471,9 +479,9 @@ bot.onText(/\/today/, async (msg) => {
         if (date === today) {
             bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
 Автор: ${author}
-Время: ${time}
+Длительность: ${time}
 Направление: ${type}
-Сложность: ${level}
+Сложность: ${getDifficultyStars(level)}
 ВПН: ${url.includes('youtu') ? 'нужен' : 'не нужен'}
 ${comment ? `Комментарий: ${comment}` : ''}`);
 
@@ -503,7 +511,7 @@ bot.onText(/\/list/, async (msg) => {
     }).replace(/\./g, '.');
 
     let table = '```\n';
-    table += '| Дата  | Время |   Направление   |\n';
+    table += '| Дата  | Длит. |   Направление   |\n';
     table += '|-------|-------|-----------------|\n';
 
     for (const row of rows) {
