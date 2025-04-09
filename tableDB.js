@@ -12,4 +12,15 @@ db.all('SELECT * FROM users', (err, rows) => {
     }
 });
 
+db.all('SELECT * FROM sent_videos', (err, rows) => {
+    if (err) {
+        console.error(err.message);
+    } else {
+        console.log('Данные из таблицы sent_videos:');
+        rows.forEach((row) => {
+            console.log(row);
+        });
+    }
+});
+
 db.close();

@@ -32,7 +32,7 @@ async function getSheetData() {
     try {
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId: GOOGLE_SHEETS_ID,
-            range: 'Зарядки (тест)!A:Z',
+            range: 'Зарядки!A:Z',
         });
 
         if (!response.data.values || response.data.values.length === 0) {
@@ -52,7 +52,6 @@ async function checkAndSendNotifications() {
         console.log('Запуск проверки уведомлений...');
         const now = new Date();
         const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-
         const hasVideoToday = await checkForTodayVideo();
 
         if (!hasVideoToday) {
@@ -166,16 +165,25 @@ function timeToMilliseconds(timeStr) {
     }
 
     try {
+        const minutesMatch = timeStr.match(/^(\d+)\s*минут[ы]?$/i);
+
+        if (minutesMatch) {
+            const minutes = parseInt(minutesMatch[1]) || 0;
+            return minutes * 60 * 1000;
+        }
+
         const parts = timeStr.split(':');
 
         if (parts.length === 2) {
-            const hours = parseInt(parts[0]) || 0;
-            const minutes = parseInt(parts[1]) || 0;
-            return (hours * 3600 + minutes * 60) * 1000; // Секунды = 0
+            const minutes = parseInt(parts[0]) || 0;
+            const seconds = parseInt(parts[1]) || 0;
+
+            return (minutes * 60 + seconds) * 1000;
         } else if (parts.length === 3) {
             const hours = parseInt(parts[0]) || 0;
             const minutes = parseInt(parts[1]) || 0;
             const seconds = parseInt(parts[2]) || 0;
+
             return (hours * 3600 + minutes * 60 + seconds) * 1000;
         } else {
             console.error('Неверный формат времени:', timeStr);
@@ -255,7 +263,7 @@ async function saveCommentToSheet(userId, userName, comment) {
             day: '2-digit',
             month: '2-digit'
         });
-        const sheetName = "Зарядки (тест)";
+        const sheetName = "Зарядки";
         const firstName = (userName || 'User').split(' ')[0];
         const columnTitle = `Отзыв ${firstName} (${userId})`;
         const valuesResponse = await sheets.spreadsheets.values.get({
@@ -439,7 +447,7 @@ bot.onText(/\/today/, async (msg) => {
 
     const rows = data.slice(1);
 
-    // Получаем сегодняшнюю дату в формате "DD.MM"
+    // Сегодняшняя дата в формате "DD.MM"
     const today = new Date().toLocaleDateString('ru-RU', {
         day: '2-digit',
         month: '2-digit',
@@ -490,11 +498,8 @@ bot.onText(/\/list/, async (msg) => {
             continue;
         }
 
-        // Сравниваем даты как строки (без учета времени)
         const [day, month] = date.split('.');
         const [todayDay, todayMonth] = todayFormatted.split('.');
-
-        // Преобразуем даты в числа для корректного сравнения
         const rowDateNumber = parseInt(month + day, 10); // MMDD
         const todayDateNumber = parseInt(todayMonth + todayDay, 10); // MMDD
 
@@ -552,8 +557,11 @@ async function resetVideoSentStatus(chatId) {
 
     return new Promise((resolve, reject) => {
         db.run(`DELETE FROM sent_videos WHERE chatId = ? AND date = ?`, [chatId, today], (err) => {
-            if (err) reject(err);
-            else resolve();
+            if (err) {
+                reject(err);
+            } else {
+                resolve();
+            }
         });
     });
 }
@@ -564,8 +572,11 @@ async function updateUserInDatabase(chatId, username, firstName, lastName) {
             INSERT OR REPLACE INTO users (chatId, username, firstName, lastName, notificationTime) 
             VALUES (?, ?, ?, ?, ?)
         `, [chatId, username, firstName, lastName, '07:00'], (err) => {
-            if (err) reject(err);
-            else resolve();
+            if (err) {
+                reject(err);
+            } else {
+                resolve();
+            }
         });
     });
 }
@@ -606,20 +617,25 @@ bot.onText(/\/comment/, async (msg) => {
     try {
         await bot.sendMessage(chatId, 'Пожалуйста, напишите ваш комментарий к видео:');
 
-        const response = await waitForUserComment(chatId, 300000);
+        const response = await waitForUserComment(chatId, 600000);
 
-        if (response && response.text) {
-            await saveCommentToSheet(
-                response.from.id,
-                response.from.first_name || '',
-                response.text,
-                userVideoState[chatId].date,
-                userVideoState[chatId].videoUrl,
-            );
+        if (Object.keys(userVideoState).length) {
+            if (response && response.text) {
+                await saveCommentToSheet(
+                    response.from.id,
+                    response.from.first_name || '',
+                    response.text,
+                    userVideoState[chatId]?.date,
+                    userVideoState[chatId]?.videoUrl,
+                );
 
-            await bot.sendMessage(chatId, 'Спасибо за ваш комментарий!');
+                await bot.sendMessage(chatId, 'Спасибо за ваш комментарий!');
 
-            delete userVideoState[chatId];
+                delete userVideoState[chatId];
+            }
+        } else {
+            console.error('Комменатрий уже был сохранен для ', chatId);
+            await bot.sendMessage(chatId, 'Комменатрий уже был сохранен.');
         }
     } catch (error) {
         console.error('Ошибка при обработке комментария:', error);
