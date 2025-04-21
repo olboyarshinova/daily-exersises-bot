@@ -1,10 +1,7 @@
 const {google} = require('googleapis');
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./database');
-
-const TELEGRAM_BOT_TOKEN = '8196294514:AAEusG4ywhEDhlfksAO4her-aCNl2Z-Z5GY';
-const GOOGLE_SHEETS_ID = '1aTH3JD502IqCX2ZG542aHodBTBBG2DzP177aY_zeSZA';
-const GOOGLE_CREDENTIALS = require('./single-scholar-395919-2a598adf8152.json');
+const {TELEGRAM_BOT_TOKEN, GOOGLE_CREDENTIALS, GOOGLE_SHEETS_ID} = require("./constants");
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, {polling: true});
 
@@ -25,7 +22,9 @@ const sheets = google.sheets({version: 'v4', auth});
 const userStates = {};
 const userVideoState = {};
 const userTimers = {};
+let isReportScheduled = false;
 
+scheduleDailyReport(bot);
 setInterval(checkAndSendNotifications, 30000);
 
 async function getSheetData() {
@@ -60,7 +59,12 @@ async function checkAndSendNotifications() {
         }
 
         const rows = await new Promise((resolve, reject) => {
-            db.all(`SELECT DISTINCT chatId FROM users WHERE notificationTime = ?`, [currentTime], (err, rows) => {
+            db.all(`
+                SELECT DISTINCT chatId 
+                FROM users 
+                WHERE notificationTime = ? 
+                AND isActive = 1
+            `, [currentTime], (err, rows) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -546,8 +550,8 @@ bot.onText(/\/start/, (msg) => {
     const lastName = msg.from.last_name;
 
     db.run(
-        'INSERT OR IGNORE INTO users (chatId, username, firstName, lastName, notificationTime) VALUES (?, ?, ?, ?, ?)',
-        [chatId, username, firstName, lastName, '07:00'],
+        'INSERT OR REPLACE INTO users (chatId, username, firstName, lastName, notificationTime, isActive) VALUES (?, ?, ?, ?, ?, ?)',
+        [chatId, username, firstName, lastName, '07:00', 1],
         (err) => {
             if (err) {
                 console.error('Ошибка при сохранении данных:', err.message);
@@ -668,3 +672,90 @@ bot.onText(/\/comment/, async (msg) => {
         await bot.sendMessage(chatId, 'Произошла ошибка при сохранении комментария.');
     }
 });
+
+async function sendDailyReport() {
+    try {
+        const stats = await new Promise((resolve, reject) => {
+            db.all(`
+                SELECT 
+                    COUNT(*) as total_users,
+                    SUM(CASE WHEN isActive = 1 THEN 1 ELSE 0 END) as active_users,
+                    (SELECT COUNT(DISTINCT chatId) FROM users 
+                     WHERE isActive = 1 AND notificationTime = '07:00') as should_receive,
+                    (SELECT COUNT(DISTINCT chatId) FROM sent_videos 
+                     WHERE date = date('now')) as actually_received
+                     FROM users
+            `, (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows[0]);
+            });
+        });
+
+        const problems = await new Promise((resolve, reject) => {
+            db.all(`
+                SELECT u.chatId, u.username, u.firstName 
+                FROM users u
+                WHERE u.isActive = 1 
+                AND u.notificationTime = '07:00'
+                AND NOT EXISTS (
+                    SELECT 1 FROM sent_videos sv 
+                    WHERE sv.chatId = u.chatId 
+                    AND sv.date = date('now')
+                )
+            `, (err, rows) => {
+                if (err) reject(err);
+                else resolve(rows);
+            });
+        });
+
+        const problemsList = problems.length > 0
+            ? problems.map(u => `@${u.username || 'нет'} (${u.firstName})`).join(', ')
+            : 'Нет проблемных пользователей';
+
+        const report = `
+📊 Ежедневный отчет:
+- Всего пользователей: ${stats.total_users}
+- Активных пользователей: ${stats.active_users}
+- Должны были получить: ${stats.should_receive}
+- Фактически получили: ${stats.actually_received}
+- Проблемные пользователи (${problems.length}): ${problemsList}
+- Дата: ${new Date().toLocaleDateString('ru-RU')}
+        `;
+
+        const ADMIN_ID = 789757639;
+        await bot.sendMessage(ADMIN_ID, report);
+        console.log('Ежедневный отчет отправлен администратору');
+
+    } catch (error) {
+        console.error('Ошибка при формировании отчета:', error);
+    }
+}
+
+function scheduleDailyReport() {
+    if (isReportScheduled) {
+        return;
+    }
+
+    isReportScheduled = true;
+
+    const now = new Date();
+    const targetTime = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        22, 0, 0
+    );
+
+    if (now > targetTime) {
+        targetTime.setDate(targetTime.getDate() + 1);
+    }
+
+    const timeUntilReport = targetTime - now;
+
+    setTimeout(() => {
+        sendDailyReport();
+        setInterval(sendDailyReport, 24 * 60 * 60 * 1000);
+    }, timeUntilReport);
+
+    console.log(`Следующий отчет будет отправлен в ${targetTime.toLocaleTimeString()}`);
+}
