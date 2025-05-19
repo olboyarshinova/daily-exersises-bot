@@ -12,17 +12,6 @@ db.all('SELECT * FROM users', (err, rows) => {
     }
 });
 
-db.all('SELECT * FROM sent_videos', (err, rows) => {
-    if (err) {
-        console.error(err.message);
-    } else {
-        console.log('Данные из таблицы sent_videos:');
-        rows.forEach((row) => {
-            console.log(row);
-        });
-    }
-});
-
 db.all(`
     SELECT 
         COUNT(*) as total_users,
@@ -46,27 +35,5 @@ db.all(`
     }
 });
 
-// Дополнительный запрос для анализа расхождения
-db.all(`
-    SELECT 
-        u.chatId,
-        u.username,
-        u.firstName,
-        u.isActive,
-        (SELECT COUNT(*) FROM sent_videos sv 
-        WHERE sv.chatId = u.chatId AND sv.date = date('now')) as received_today
-        FROM users u
-        WHERE u.isActive = 1
-    `, (err, activeUsers) => {
-    if (err) {
-        console.error('Ошибка при анализе активных пользователей:', err.message);
-    } else {
-        const notReceived = activeUsers.filter(u => !u.received_today);
-        console.log(`Активные пользователи, не получившие уведомление сегодня (${notReceived.length}):`);
-        notReceived.forEach(user => {
-            console.log(`- ${user.firstName} (@${user.username}) [${user.chatId}]`);
-        });
-    }
-});
 
 db.close();
