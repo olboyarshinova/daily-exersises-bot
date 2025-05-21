@@ -1,7 +1,7 @@
 const {google} = require('googleapis');
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./database');
-const {TELEGRAM_BOT_TOKEN, GOOGLE_CREDENTIALS, GOOGLE_SHEETS_ID} = require('./constants');
+const {TELEGRAM_BOT_TOKEN, GOOGLE_CREDENTIALS, GOOGLE_SHEETS_ID, ADMIN_ID} = require('./constants');
 
 const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, {polling: true});
 
@@ -11,7 +11,7 @@ bot.setMyCommands([
     {command: '/today', description: '🎥  Получить сегодняшнее видео'},
     {command: '/list', description: '📋  Список всех видео'},
     {command: '/mytime', description: '⏰  Установленное время уведомлений'},
-    {command: '/help', description: 'ℹ️  Помощь'},
+    {command: '/report', description: '🚨  Уведомить об ошибке'},
 ]);
 
 const auth = new google.auth.GoogleAuth({
@@ -169,7 +169,7 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
                                         {text: "5", callback_data: "rate_5"},
                                     ],
                                     [
-                                        {text: "Пропустить", callback_data: "skip_rating"}
+                                        {text: "Пропустить", callback_data: "skip_rating"},
                                     ],
                                 ],
                             },
@@ -192,7 +192,9 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
     } catch (error) {
         console.error('Ошибка в sendVideoNotification:', error);
         try {
-            await bot.sendMessage(chatId, 'Произошла ошибка при отправке видео. Попробуйте позже.');
+            await bot.sendMessage(chatId, `⚠️ Произошла ошибка при отправке видео. Попробуйте позже.
+            
+Вы можете отправить отчет по команде /report`);
         } catch (sendError) {
             console.error('Ошибка при отправке сообщения об ошибке:', sendError);
         }
@@ -377,6 +379,7 @@ function getColumnLetter(columnIndex) {
         letter = String.fromCharCode(65 + remainder) + letter;
         columnIndex = Math.floor((columnIndex - 1) / 26);
     }
+
     return letter || 'A';
 }
 
@@ -393,8 +396,8 @@ bot.onText(/\/settime$/, (msg) => {
                 [{text: "15:00", callback_data: "settime_15:00"}],
                 [{text: "18:00", callback_data: "settime_18:00"}],
                 [{text: "Другое время...", callback_data: "settime_custom"}],
-            ]
-        }
+            ],
+        },
     });
 });
 
@@ -410,7 +413,7 @@ bot.on('callback_query', async (query) => {
                 {
                     chat_id: chatId,
                     message_id: query.message.message_id,
-                }
+                },
             );
             return;
         }
@@ -458,7 +461,7 @@ bot.on('callback_query', async (query) => {
             );
 
             await bot.answerCallbackQuery(query.id, {
-                text: `Спасибо за оценку ${'⭐'.repeat(rating)}!`
+                text: `Спасибо за оценку ${'⭐'.repeat(rating)}!`,
             });
 
             await saveCommentToSheet(
@@ -472,7 +475,7 @@ bot.on('callback_query', async (query) => {
             await bot.sendMessage(
                 chatId,
                 rating < 3
-                    ? 'Спасибо за честность! Что нам улучшить? (2-3 слова)'
+                    ? 'Спасибо за оценку! Что необходимо улучшить?'
                     : `Спасибо за оценку!
                     
 Хотите добавить комментарий к оценке?
@@ -484,13 +487,14 @@ bot.on('callback_query', async (query) => {
                 {
                     reply_markup: {
                         inline_keyboard: [
-                            [{text: "Пропустить", callback_data: "skip_comment"}]
+                            [{text: "Пропустить", callback_data: "skip_comment"}],
                         ],
                     },
                 },
             );
 
             userStates[chatId] = {
+                type: 'feedback',
                 waitingForComment: true,
                 rating: rating,
             };
@@ -500,12 +504,37 @@ bot.on('callback_query', async (query) => {
                     delete userStates[chatId];
                     bot.sendMessage(chatId, "Если захотите оставить комментарий позже - используйте команду /comment");
                 }
-            }, 300000); // 5 мин
+            }, 300000);
+        }
+
+        if (query.data === 'report_cancel') {
+            clearTimeout(userStates[chatId]?.timeout);
+            delete userStates[chatId];
+
+            await bot.answerCallbackQuery(query.id);
+            await bot.editMessageText('Отправка отчета отменена', {
+                chat_id: chatId,
+                message_id: query.message.message_id,
+            });
+        }
+
+        if (query.data === 'report_example') {
+            await bot.answerCallbackQuery(query.id);
+            await bot.sendMessage(chatId,
+                'Пример хорошего отчета:\n\n' +
+                '• Проблема: при нажатии на /today бот не отвечает\n' +
+                '• Время: 15:30 20.05.2023\n' +
+                '• Действия: открыл бота → нажал /today → ничего не произошло\n'
+            );
+            // '• Дополнительно: Скриншот прикреплен', {
+            //     parse_mode: 'HTML',
+            //     reply_to_message_id: query.message.message_id,
+            // }
         }
     } catch (error) {
         console.error('Ошибка обработки оценки:', error);
         await bot.answerCallbackQuery(query.id, {
-            text: 'Произошла ошибка, попробуйте позже'
+            text: 'Произошла ошибка, попробуйте позже',
         });
     }
 });
@@ -527,16 +556,19 @@ bot.on('text', (msg) => {
             let minutes = parseInt(match[2], 10);
 
             if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-                const formattedTime =
-                    `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 
                 saveNotificationTime(chatId, formattedTime, null);
                 delete userStates[chatId];
             } else {
-                bot.sendMessage(chatId, 'Неверное время. Часы должны быть от 0 до 23, а минуты от 0 до 59.');
+                bot.sendMessage(chatId, `⚠️ Неверное время. Часы должны быть от 0 до 23, а минуты от 0 до 59.
+                
+Вы можете отправить отчет по команде /report`);
             }
         } else {
-            bot.sendMessage(chatId, 'Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)');
+            bot.sendMessage(chatId, `⚠️ Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)
+            
+Вы можете отправить отчет по команде /report`);
         }
     }
 });
@@ -580,7 +612,9 @@ function saveNotificationTime(chatId, time, callbackQueryId = null) {
 
                 if (err) {
                     console.error(err);
-                    bot.sendMessage(chatId, 'Произошла ошибка при сохранении времени.');
+                    bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении времени.
+                   
+Вы можете отправить отчет по команде /report`);
                     return;
                 }
 
@@ -596,7 +630,9 @@ bot.onText(/\/today/, async (msg) => {
     const data = await getSheetData();
 
     if (!data) {
-        bot.sendMessage(chatId, 'Данные не получены 2.');
+        bot.sendMessage(chatId, `⚠️ Данные не получены.
+        
+Вы можете отправить отчет по команде /report`);
         return;
     }
 
@@ -633,7 +669,9 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
         }
     }
 
-    bot.sendMessage(chatId, 'На сегодня видео не найдено.');
+    bot.sendMessage(chatId, `⚠️ На сегодня видео не найдено.
+    
+Вы можете отправить отчет по команде /report`);
 });
 
 bot.onText(/\/list/, async (msg) => {
@@ -641,7 +679,9 @@ bot.onText(/\/list/, async (msg) => {
     const data = await getSheetData();
 
     if (!data) {
-        bot.sendMessage(chatId, 'Данные не получены.');
+        bot.sendMessage(chatId, `⚠️ Данные не получены.
+        
+Вы можете отправить отчет по команде /report`);
         return;
     }
 
@@ -696,7 +736,9 @@ bot.onText(/\/start/, (msg) => {
         (err) => {
             if (err) {
                 console.error('Ошибка при сохранении данных:', err.message);
-                return bot.sendMessage(chatId, 'Произошла ошибка при сохранении ваших данных.');
+                return bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении ваших данных.
+                
+Вы можете отправить отчет по команде /report`);
             }
 
             console.log(`Пользователь ${username} добавлен в базу данных`);
@@ -752,20 +794,6 @@ async function updateUserInDatabase(chatId, username, firstName, lastName) {
     });
 }
 
-bot.onText(/\/help/, (msg) => {
-    const chatId = msg.chat.id;
-    const helpText = `
-        Доступные команды:
-/start - Запустить/обновить бота
-/settime - Установить время уведомлений
-/today - Получить сегодняшнее видео
-/list - Список всех видео
-/mytime - Установленное время уведомлений
-/help - Показать это сообщение
-    `;
-    bot.sendMessage(chatId, helpText);
-});
-
 bot.onText(/\/mytime/, (msg) => {
     const chatId = msg.chat.id;
 
@@ -777,7 +805,9 @@ bot.onText(/\/mytime/, (msg) => {
         if (row) {
             bot.sendMessage(chatId, `Время уведомлений: ${row.notificationTime || '09:00'}`);
         } else {
-            bot.sendMessage(chatId, 'Вы не зарегистрированы.');
+            bot.sendMessage(chatId, `⚠️ Нет установленного времени.
+            
+Вы можете отправить отчет по команде /report`);
         }
     });
 });
@@ -810,7 +840,9 @@ bot.onText(/\/comment/, async (msg) => {
         }
     } catch (error) {
         console.error('Ошибка при обработке комментария:', error);
-        await bot.sendMessage(chatId, 'Произошла ошибка при сохранении комментария.');
+        await bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении комментария.
+        
+Вы можете отправить отчет по команде /report`);
     }
 });
 
@@ -827,8 +859,11 @@ async function sendDailyReport() {
                      WHERE date = date('now')) as actually_received
                      FROM users
             `, (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows[0]);
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows[0]);
+                }
             });
         });
 
@@ -844,8 +879,11 @@ async function sendDailyReport() {
                     AND sv.date = date('now')
                 )
             `, (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows);
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(rows);
+                }
             });
         });
 
@@ -863,7 +901,6 @@ async function sendDailyReport() {
 - Дата: ${new Date().toLocaleDateString('ru-RU')}
         `;
 
-        const ADMIN_ID = 789757639;
         await bot.sendMessage(ADMIN_ID, report);
         console.log('Ежедневный отчет отправлен администратору');
 
@@ -884,7 +921,7 @@ function scheduleDailyReport() {
         now.getFullYear(),
         now.getMonth(),
         now.getDate(),
-        22, 0, 0
+        21, 0, 0,
     );
 
     if (now > targetTime) {
@@ -925,16 +962,45 @@ bot.on('message', async (msg) => {
                 msg.from.first_name || 'User',
                 updatedComment,
                 userVideoState[chatId]?.date,
-                userVideoState[chatId]?.videoUrl
+                userVideoState[chatId]?.videoUrl,
             );
 
             delete userStates[chatId];
             await bot.sendMessage(chatId, 'Ваш отзыв сохранен! Спасибо!');
             clearTimeout(userState.timeout);
-
         } catch (error) {
-            console.error('Ошибка сохранения комментария:', error);
-            await bot.sendMessage(chatId, 'Не удалось сохранить комментарий');
+            console.error('Ошибка сохранения отзыва:', error);
+            await bot.sendMessage(chatId, `⚠️ Не удалось отправить отзыв. Попробуйте позже.
+
+Вы можете отправить отчет по команде /report`);
+        }
+    }
+
+    if (userState?.waitingForErrorReport) {
+        try {
+
+            const reportData = {
+                userId: chatId,
+                userName: msg.from.first_name || 'Аноним',
+                text: msg.text,
+                date: new Date(),
+                hasMedia: userState.hasMedia || false,
+                mediaFileId: userState.mediaFileId || null,
+            };
+
+            await saveErrorReport(reportData);
+
+            if (userState.hasMedia) {
+                await forwardMediaToAdmin(userState.mediaFileId, userState.mediaType, msg.text);
+            }
+
+            await bot.sendMessage(chatId, 'Отчет об ошибке успешно отправлен. Спасибо!');
+            delete userStates[chatId];
+        } catch (error) {
+            console.error('Ошибка сохранения отчета:', error);
+            await bot.sendMessage(chatId, `⚠️ Не удалось отправить отчет. Попробуйте позже.
+
+Вы можете отправить отчет по команде /report`);
         }
     }
 });
@@ -973,5 +1039,109 @@ async function getCurrentComment(chatId, date) {
     } catch (error) {
         console.error('Ошибка при получении комментария:', error);
         return '';
+    }
+}
+
+bot.onText(/\/report/, (msg) => {
+    const chatId = msg.chat.id;
+
+    bot.sendMessage(chatId, `🛠 Сообщить об ошибке.
+    
+Опишите проблему как можно подробнее:
+• Что произошло
+• Когда возникла ошибка
+• Какие действия к ней привели`, {
+        parse_mode: 'HTML',
+        reply_markup: {
+            inline_keyboard: [
+                [{text: "✖️ Отменить", callback_data: "report_cancel"}],
+                [{text: "❓ Пример отчета", callback_data: "report_example"}],
+            ],
+        },
+    });
+
+    userStates[chatId] = {
+        waitingForErrorReport: true,
+        timeout: setTimeout(() => {
+            if (userStates[chatId]?.waitingForErrorReport) {
+                bot.sendMessage(chatId, 'Время на отправку отчета истекло. Используйте /report когда будете готовы.');
+                delete userStates[chatId];
+            }
+        }, 300000)
+    };
+});
+
+async function saveErrorReport(data) {
+    const sheetName = "Ошибки";
+    const timestamp = data.date.toLocaleString('ru-RU', {timeZone: 'Europe/Moscow'});
+
+    await sheets.spreadsheets.values.append({
+        spreadsheetId: GOOGLE_SHEETS_ID,
+        range: `${sheetName}!A:E`,
+        valueInputOption: 'USER_ENTERED',
+        resource: {
+            values: [[
+                timestamp,
+                data.userId,
+                data.userName,
+                data.text,
+                data.hasMedia ? 'Да' : 'Нет',
+            ]],
+        },
+    });
+}
+
+bot.on(['photo', 'document'], async (msg) => {
+    const chatId = msg.chat.id;
+    const state = userStates[chatId];
+    const ALLOWED_FILE_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+
+    if (!ALLOWED_FILE_TYPES.includes(msg.document.mime_type)) {
+        await bot.sendMessage(msg.chat.id, '⚠️ Поддерживаются только JPG, PNG и PDF');
+        return;
+    }
+
+    if (msg.document.file_size > 5 * 1024 * 1024) {
+        await bot.sendMessage(msg.chat.id, '⚠️ Файл слишком большой (макс. 5MB)');
+        return;
+    }
+
+    if (state?.waitingForErrorReport) {
+        try {
+            const fileId = msg.photo ? msg.photo[msg.photo.length - 1].file_id : msg.document.file_id;
+
+            userStates[chatId] = {
+                ...state,
+                hasMedia: true,
+                mediaFileId: fileId,
+                mediaType: msg.photo ? 'photo' : 'document',
+            };
+
+            await bot.sendMessage(chatId, '📎 Медиафайл получен! Теперь, пожалуйста, опишите проблему текстом:', {
+                reply_markup: {
+                    inline_keyboard: [
+                        [{text: "Отменить отправку", callback_data: "report_cancel"}],
+                    ],
+                },
+            });
+
+        } catch (error) {
+            console.error('Ошибка обработки медиафайла:', error);
+            await bot.sendMessage(chatId, `⚠️ Не удалось обработать файл. Попробуйте отправить его еще раз.
+            
+Вы можете отправить отчет по команде /report`);
+        }
+    }
+});
+
+async function forwardMediaToAdmin(fileId, mediaType, caption) {
+    try {
+        if (mediaType === 'photo') {
+            await bot.sendPhoto(ADMIN_ID, fileId, {caption: `Ошибка: ${caption}`});
+        } else {
+            await bot.sendDocument(ADMIN_ID, fileId, {caption: `Ошибка: ${caption}`});
+        }
+    } catch (error) {
+        console.error('Ошибка пересылки медиа:', error);
     }
 }
