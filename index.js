@@ -194,9 +194,9 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
         try {
             await bot.sendMessage(chatId, `⚠️ Произошла ошибка при отправке видео. Попробуйте позже.
             
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         } catch (sendError) {
-            console.error('Ошибка при отправке сообщения об ошибке:', sendError);
+            console.error('Ошибка при отправке сообщения об ошибке:', chatId, sendError);
         }
     }
 }
@@ -268,7 +268,7 @@ async function markVideoAsSent(chatId, date) {
             [chatId, date],
             function (err) {
                 if (err) {
-                    console.error('Ошибка при отметке видео:', err);
+                    console.error('Ошибка при отметке видео:', err, chatId);
                     reject(err);
                 } else {
                     if (this.changes > 0) {
@@ -284,20 +284,20 @@ async function markVideoAsSent(chatId, date) {
 
 function waitForUserComment(chatId, timeout) {
     return new Promise((resolve) => {
-        const listener = (msg) => {
+        const listener = async (msg) => {
             if (msg.chat.id === chatId && !msg.text.startsWith('/')) {
-                cleanup();
+                await cleanup();
                 resolve(msg);
             }
         };
 
-        const timer = setTimeout(() => {
-            cleanup();
+        const timer = setTimeout(async () => {
+            await cleanup();
             resolve(null);
         }, timeout);
 
-        const cleanup = () => {
-            bot.removeListener('message', listener);
+        const cleanup = async () => {
+            await bot.removeListener('message', listener);
             clearTimeout(timer);
         };
 
@@ -366,7 +366,7 @@ async function saveCommentToSheet(userId, userName, comment, date) {
         return true;
 
     } catch (error) {
-        console.error('Ошибка сохранения в Google Sheets:', error);
+        console.error('Ошибка сохранения в Google Sheets:', error, userId);
         throw new Error('Не удалось сохранить комментарий');
     }
 }
@@ -383,10 +383,10 @@ function getColumnLetter(columnIndex) {
     return letter || 'A';
 }
 
-bot.onText(/\/settime$/, (msg) => {
+bot.onText(/\/settime$/, async (msg) => {
     const chatId = msg.chat.id;
 
-    bot.sendMessage(chatId, 'Выберите время уведомлений (московское время):', {
+    await bot.sendMessage(chatId, 'Выберите время уведомлений (московское время):', {
         reply_markup: {
             inline_keyboard: [
                 [{text: "07:00", callback_data: "settime_07:00"}],
@@ -428,6 +428,7 @@ bot.on('callback_query', async (query) => {
                 }
             );
             delete userStates[chatId];
+
             return;
         }
 
@@ -526,20 +527,21 @@ bot.on('callback_query', async (query) => {
                 '• Время: 15:30 20.05.2023\n' +
                 '• Действия: открыл бота → нажал /today → ничего не произошло\n'
             );
+            // TODO: добавить возможность отправлять скриншоты
             // '• Дополнительно: Скриншот прикреплен', {
             //     parse_mode: 'HTML',
             //     reply_to_message_id: query.message.message_id,
             // }
         }
     } catch (error) {
-        console.error('Ошибка обработки оценки:', error);
+        console.error('Ошибка обработки оценки:', error, chatId);
         await bot.answerCallbackQuery(query.id, {
             text: 'Произошла ошибка, попробуйте позже',
         });
     }
 });
 
-bot.on('text', (msg) => {
+bot.on('text', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text.trim();
 
@@ -561,14 +563,14 @@ bot.on('text', (msg) => {
                 saveNotificationTime(chatId, formattedTime, null);
                 delete userStates[chatId];
             } else {
-                bot.sendMessage(chatId, `⚠️ Неверное время. Часы должны быть от 0 до 23, а минуты от 0 до 59.
+                await bot.sendMessage(chatId, `⚠️ Неверное время. Часы должны быть от 0 до 23, а минуты от 0 до 59.
                 
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
             }
         } else {
-            bot.sendMessage(chatId, `⚠️ Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)
+            await bot.sendMessage(chatId, `⚠️ Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)
             
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         }
     }
 });
@@ -605,21 +607,21 @@ function saveNotificationTime(chatId, time, callbackQueryId = null) {
                 time,
                 row?.isActive || 1
             ],
-            (err) => {
+            async (err) => {
                 if (callbackQueryId) {
-                    bot.answerCallbackQuery(callbackQueryId);
+                    await bot.answerCallbackQuery(callbackQueryId);
                 }
 
                 if (err) {
-                    console.error(err);
-                    bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении времени.
+                    console.error(err, chatId);
+                    await bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении времени.
                    
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
                     return;
                 }
 
                 console.log(`Для пользователя ${chatId} время уведомлений изменено на ${time}.`)
-                bot.sendMessage(chatId, `Теперь уведомления будут приходить в ${time}.`);
+                await bot.sendMessage(chatId, `Теперь уведомления будут приходить в ${time}.`);
             }
         );
     });
@@ -630,9 +632,9 @@ bot.onText(/\/today/, async (msg) => {
     const data = await getSheetData();
 
     if (!data) {
-        bot.sendMessage(chatId, `⚠️ Данные не получены.
+        await bot.sendMessage(chatId, `⚠️ Данные не получены.
         
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         return;
     }
 
@@ -657,7 +659,7 @@ bot.onText(/\/today/, async (msg) => {
         }
 
         if (date === today) {
-            bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
+            await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
 Автор: ${author}
 Длительность: ${time}
 Направление: ${formattedType}
@@ -669,9 +671,9 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
         }
     }
 
-    bot.sendMessage(chatId, `⚠️ На сегодня видео не найдено.
+    await bot.sendMessage(chatId, `⚠️ На сегодня видео не найдено.
     
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
 });
 
 bot.onText(/\/list/, async (msg) => {
@@ -679,9 +681,9 @@ bot.onText(/\/list/, async (msg) => {
     const data = await getSheetData();
 
     if (!data) {
-        bot.sendMessage(chatId, `⚠️ Данные не получены.
+        await bot.sendMessage(chatId, `⚠️ Данные не получены.
         
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         return;
     }
 
@@ -705,7 +707,7 @@ bot.onText(/\/list/, async (msg) => {
         const type = row[5];
 
         if (!/^\d{2}\.\d{2}$/.test(date)) {
-            console.error(`Некорректный формат даты: ${date}`);
+            console.error(`Некорректный формат даты: ${date}`, msg.chat.id);
             continue;
         }
 
@@ -721,7 +723,7 @@ bot.onText(/\/list/, async (msg) => {
 
     table += '```';
 
-    bot.sendMessage(chatId, table, {parse_mode: 'Markdown'});
+    await bot.sendMessage(chatId, table, {parse_mode: 'Markdown'});
 });
 
 bot.onText(/\/start/, (msg) => {
@@ -738,7 +740,7 @@ bot.onText(/\/start/, (msg) => {
                 console.error('Ошибка при сохранении данных:', err.message);
                 return bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении ваших данных.
                 
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
             }
 
             console.log(`Пользователь ${username} добавлен в базу данных`);
@@ -752,8 +754,7 @@ bot.onText(/\/start/, (msg) => {
 
                 await resetVideoSentStatus(chatId);
                 await updateUserInDatabase(chatId, username, firstName, lastName);
-
-                bot.sendMessage(
+                await bot.sendMessage(
                     chatId,
                     `Привет, ${firstName}! Добро пожаловать! Используйте /settime для настройки времени уведомлений. Текущее время уведомлений: ${notificationTime} (московское время).`,
                 );
@@ -797,17 +798,17 @@ async function updateUserInDatabase(chatId, username, firstName, lastName) {
 bot.onText(/\/mytime/, (msg) => {
     const chatId = msg.chat.id;
 
-    db.get('SELECT * FROM users WHERE chatId = ?', [chatId], (err, row) => {
+    db.get('SELECT * FROM users WHERE chatId = ?', [chatId], async (err, row) => {
         if (err) {
             return console.error('Ошибка при получении данных:', err.message);
         }
 
         if (row) {
-            bot.sendMessage(chatId, `Время уведомлений: ${row.notificationTime || '09:00'}`);
+            await bot.sendMessage(chatId, `Время уведомлений: ${row.notificationTime || '09:00'}`);
         } else {
-            bot.sendMessage(chatId, `⚠️ Нет установленного времени.
+            await bot.sendMessage(chatId, `⚠️ Нет установленного времени.
             
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         }
     });
 });
@@ -842,23 +843,24 @@ bot.onText(/\/comment/, async (msg) => {
         console.error('Ошибка при обработке комментария:', error);
         await bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении комментария.
         
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
     }
 });
 
 async function sendDailyReport() {
     try {
+        const today = new Date();
+        const todayFormatted = `${today.getDate().toString().padStart(2, '0')}.${(today.getMonth() + 1).toString().padStart(2, '0')}`;
+
         const stats = await new Promise((resolve, reject) => {
             db.all(`
                 SELECT 
                     COUNT(*) as total_users,
                     SUM(CASE WHEN isActive = 1 THEN 1 ELSE 0 END) as active_users,
-                    (SELECT COUNT(DISTINCT chatId) FROM users 
-                     WHERE isActive = 1 AND notificationTime = '09:00') as should_receive,
-                    (SELECT COUNT(DISTINCT chatId) FROM sent_videos 
-                     WHERE date = date('now')) as actually_received
-                     FROM users
-            `, (err, rows) => {
+                    (SELECT COUNT(DISTINCT chatId) FROM users WHERE isActive = 1) as should_receive,
+                    (SELECT COUNT(DISTINCT chatId) FROM sent_videos WHERE date = ?) as actually_received
+                FROM users
+            `, [todayFormatted], (err, rows) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -869,16 +871,15 @@ async function sendDailyReport() {
 
         const problems = await new Promise((resolve, reject) => {
             db.all(`
-                SELECT u.chatId, u.username, u.firstName 
+                SELECT u.chatId, u.username, u.firstName, u.notificationTime
                 FROM users u
-                WHERE u.isActive = 1 
-                AND u.notificationTime = '09:00'
+                WHERE u.isActive = 1
                 AND NOT EXISTS (
                     SELECT 1 FROM sent_videos sv 
                     WHERE sv.chatId = u.chatId 
-                    AND sv.date = date('now')
+                    AND sv.date = ?
                 )
-            `, (err, rows) => {
+            `, [todayFormatted], (err, rows) => {
                 if (err) {
                     reject(err);
                 } else {
@@ -898,7 +899,7 @@ async function sendDailyReport() {
 - Должны были получить: ${stats.should_receive}
 - Фактически получили: ${stats.actually_received}
 - Проблемные пользователи (${problems.length}): ${problemsList}
-- Дата: ${new Date().toLocaleDateString('ru-RU')}
+- Дата: ${today.toLocaleDateString('ru-RU')}
         `;
 
         await bot.sendMessage(ADMIN_ID, report);
@@ -972,7 +973,7 @@ bot.on('message', async (msg) => {
             console.error('Ошибка сохранения отзыва:', error);
             await bot.sendMessage(chatId, `⚠️ Не удалось отправить отзыв. Попробуйте позже.
 
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         }
     }
 
@@ -1000,7 +1001,7 @@ bot.on('message', async (msg) => {
             console.error('Ошибка сохранения отчета:', error);
             await bot.sendMessage(chatId, `⚠️ Не удалось отправить отчет. Попробуйте позже.
 
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         }
     }
 });
@@ -1042,10 +1043,10 @@ async function getCurrentComment(chatId, date) {
     }
 }
 
-bot.onText(/\/report/, (msg) => {
+bot.onText(/\/report/, async (msg) => {
     const chatId = msg.chat.id;
 
-    bot.sendMessage(chatId, `🛠 Сообщить об ошибке.
+    await bot.sendMessage(chatId, `🛠 Сообщить об ошибке.
     
 Опишите проблему как можно подробнее:
 • Что произошло
@@ -1054,17 +1055,17 @@ bot.onText(/\/report/, (msg) => {
         parse_mode: 'HTML',
         reply_markup: {
             inline_keyboard: [
-                [{text: "✖️ Отменить", callback_data: "report_cancel"}],
-                [{text: "❓ Пример отчета", callback_data: "report_example"}],
+                [{text: "Пример отчета", callback_data: "report_example"}],
+                [{text: "Отменить", callback_data: "report_cancel"}],
             ],
         },
     });
 
     userStates[chatId] = {
         waitingForErrorReport: true,
-        timeout: setTimeout(() => {
+        timeout: setTimeout(async () => {
             if (userStates[chatId]?.waitingForErrorReport) {
-                bot.sendMessage(chatId, 'Время на отправку отчета истекло. Используйте /report когда будете готовы.');
+                await bot.sendMessage(chatId, 'Время на отправку отчета истекло. Используйте /report когда будете готовы.');
                 delete userStates[chatId];
             }
         }, 300000)
@@ -1089,6 +1090,9 @@ async function saveErrorReport(data) {
             ]],
         },
     });
+
+    await bot.sendMessage(ADMIN_ID, `Пользователь ${data.userName} отправил отчет об ошибке:
+${data.text}`)
 }
 
 bot.on(['photo', 'document'], async (msg) => {
@@ -1129,7 +1133,7 @@ bot.on(['photo', 'document'], async (msg) => {
             console.error('Ошибка обработки медиафайла:', error);
             await bot.sendMessage(chatId, `⚠️ Не удалось обработать файл. Попробуйте отправить его еще раз.
             
-Вы можете отправить отчет по команде /report`);
+Вы можете уведомить об ошибке по команде /report`);
         }
     }
 });
