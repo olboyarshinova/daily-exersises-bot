@@ -190,7 +190,7 @@ ${comment ? `Комментарий: ${comment}` : ''}`);
         }
 
     } catch (error) {
-        console.error('Ошибка в sendVideoNotification:', error);
+        console.error(`Ошибка в sendVideoNotification (${chatId}):`, error);
         try {
             await bot.sendMessage(chatId, `⚠️ Произошла ошибка при отправке видео. Попробуйте позже.
             
@@ -856,8 +856,6 @@ async function sendDailyReport() {
             db.all(`
                 SELECT 
                     COUNT(*) as total_users,
-                    SUM(CASE WHEN isActive = 1 THEN 1 ELSE 0 END) as active_users,
-                    (SELECT COUNT(DISTINCT chatId) FROM users WHERE isActive = 1) as should_receive,
                     (SELECT COUNT(DISTINCT chatId) FROM sent_videos WHERE date = ?) as actually_received
                 FROM users
             `, [todayFormatted], (err, rows) => {
@@ -895,8 +893,6 @@ async function sendDailyReport() {
         const report = `
 📊 Ежедневный отчет:
 - Всего пользователей: ${stats.total_users}
-- Активных пользователей: ${stats.active_users}
-- Должны были получить: ${stats.should_receive}
 - Фактически получили: ${stats.actually_received}
 - Проблемные пользователи (${problems.length}): ${problemsList}
 - Дата: ${today.toLocaleDateString('ru-RU')}
