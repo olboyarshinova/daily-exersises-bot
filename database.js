@@ -24,7 +24,7 @@ db.serialize(() => {
                 username TEXT,
                 firstName TEXT,
                 lastName TEXT,
-                notificationTime TEXT DEFAULT '09:00',
+                notificationTime TEXT DEFAULT '08:00',
                 isActive BOOLEAN DEFAULT 1
                )
         `);

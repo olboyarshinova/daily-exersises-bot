@@ -12,20 +12,6 @@ db.all('SELECT * FROM users', (err, rows) => {
     }
 });
 
-db.all('SELECT * FROM sent_videos', (err, rows) => {
-    if (err) {
-        console.error(err.message);
-    } else {
-        const headers = Object.keys(rows[0] || {});
-        const headerStr = headers.join('\t');
-        const dataStr = rows.map(row =>
-            headers.map(h => row[h]).join('\t')
-        ).join('\n');
-
-        console.log('Отправленные видео:\n', headerStr + '\n' + dataStr);
-    }
-});
-
 const today = new Date();
 const todayFormatted = `${today.getDate().toString().padStart(2, '0')}.${(today.getMonth() + 1).toString().padStart(2, '0')}`;
 
