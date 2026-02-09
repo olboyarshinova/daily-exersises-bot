@@ -16,7 +16,7 @@ bot.setMyCommands([
 
 const auth = new google.auth.GoogleAuth({
     credentials: GOOGLE_CREDENTIALS,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 const sheets = google.sheets({version: 'v4', auth});
 const userStates = {};
@@ -26,7 +26,7 @@ let isReportScheduled = false;
 
 scheduleDailyReport(bot);
 setInterval(checkAndSendNotifications, 30000);
-await testConnection();
+testConnection();
 
 async function getSheetData() {
     try {
@@ -124,13 +124,28 @@ async function sendVideoNotification(chatId) {
         }
 
         try {
-            await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
+            const thumbnailUrl = getYouTubeThumbnail(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
+            await bot.sendPhoto(chatId, thumbnailUrl, {
+                caption: `Сегодняшняя тренировка
+
 Автор: ${author}
 Длительность: ${time}
 Направление: ${type}
 Сложность: ${getDifficultyStars(level)}
 ВПН: ${url.includes('youtube') ? 'нужен' : 'не нужен'}
-${comment ? `Комментарий: ${comment}` : ''}`);
+${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: 'Смотреть видео',
+                                url: url,
+                            },
+                        ],
+                    ],
+                },
+            });
             await markVideoAsSent(chatId, date);
 
             const videoDurationMs = timeToMilliseconds(time);
@@ -660,13 +675,28 @@ bot.onText(/\/today/, async (msg) => {
         }
 
         if (date === today) {
-            await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
+            const thumbnailUrl = getYouTubeThumbnail(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
+            await bot.sendPhoto(chatId, thumbnailUrl, {
+                caption: `Сегодняшняя тренировка
+
 Автор: ${author}
 Длительность: ${time}
-Направление: ${formattedType}
+Направление: ${type}
 Сложность: ${getDifficultyStars(level)}
-ВПН: ${url.includes('youtu') ? 'нужен' : 'не нужен'}
-${comment ? `Комментарий: ${comment}` : ''}`);
+ВПН: ${url.includes('youtube') ? 'нужен' : 'не нужен'}
+${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [
+                            {
+                                text: 'Смотреть видео',
+                                url: url,
+                            },
+                        ],
+                    ],
+                },
+            });
 
             return;
         }
@@ -1168,4 +1198,15 @@ async function testConnection() {
 
         return false;
     }
+}
+
+function getYouTubeThumbnail(videoUrl) {
+    const videoId = videoUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+
+    if (videoId && videoId[1]) {
+        return `https://img.youtube.com/vi/${videoId[1]}/maxresdefault.jpg`;
+    }
+
+    // Если не YouTube или не удалось извлечь ID, можно использовать дефолтное изображение
+    return null;
 }
