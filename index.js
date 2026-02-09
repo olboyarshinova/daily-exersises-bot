@@ -97,7 +97,7 @@ async function checkForTodayVideo() {
 }
 
 async function sendVideoNotification(row) {
-    const {chatId, firstName} = row;
+    const {chatId} = row;
 
     try {
         const data = await getSheetData();
@@ -143,13 +143,12 @@ ${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
                         [
                             {
                                 text: 'Смотреть видео',
-                                url: url,
+                                url,
                             },
                         ],
                     ],
                 },
             });
-            await trackVideoClick(chatId, firstName, author, time, type, level);
             await markVideoAsSent(chatId, date);
 
             const videoDurationMs = timeToMilliseconds(time);
@@ -696,13 +695,12 @@ ${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
                         [
                             {
                                 text: 'Смотреть видео',
-                                url: url,
+                                url,
                             },
                         ],
                     ],
                 },
             });
-            await trackVideoClick(chatId, null, author, time, type, level)
 
             return;
         }
@@ -1215,38 +1213,4 @@ function getYouTubePreview(videoUrl) {
 
     // Если не YouTube или не удалось извлечь ID, можно использовать дефолтное изображение
     return null;
-}
-
-async function trackVideoClick(chatId, firstName, author, time, type, level) {
-    try {
-        const today = new Date().toLocaleDateString('ru-RU', {
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric'
-        });
-        const timeStr = new Date().toLocaleTimeString('ru-RU');
-
-        await sheets.spreadsheets.values.append({
-            spreadsheetId: GOOGLE_SHEETS_ID,
-            range: 'Клики!A:G',
-            valueInputOption: 'USER_ENTERED',
-            resource: {
-                values: [[
-                    today,
-                    timeStr,
-                    chatId,
-                    firstName,
-                    author,
-                    time,
-                    type,
-                    level,
-                ]],
-            },
-        });
-
-        return true;
-    } catch (error) {
-        console.error('Ошибка записи клика:', error);
-        return false;
-    }
 }
