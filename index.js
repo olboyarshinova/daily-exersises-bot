@@ -75,7 +75,7 @@ async function checkAndSendNotifications() {
         });
 
         console.log(`Найдено ${rows.length} пользователей для уведомления в ${currentTime}`);
-        await Promise.all(rows.map(row => sendVideoNotification(row.chatId)));
+        await Promise.all(rows.map(row => sendVideoNotification(row)));
     } catch (error) {
         console.error('Ошибка в checkAndSendNotifications:', error);
     }
@@ -96,7 +96,9 @@ async function checkForTodayVideo() {
     return data.some(row => row[0] === today);
 }
 
-async function sendVideoNotification(chatId) {
+async function sendVideoNotification(row) {
+    const {chatId, firstName} = row;
+
     try {
         const data = await getSheetData();
 
@@ -124,8 +126,9 @@ async function sendVideoNotification(chatId) {
         }
 
         try {
-            const thumbnailUrl = getYouTubeThumbnail(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
-            await bot.sendPhoto(chatId, thumbnailUrl, {
+            const previewUrl = getYouTubePreview(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
+
+            await bot.sendPhoto(chatId, previewUrl, {
                 caption: `Сегодняшняя тренировка
 
 Автор: ${author}
@@ -146,6 +149,7 @@ ${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
                     ],
                 },
             });
+            await trackVideoClick(chatId, firstName, author, time, type, level);
             await markVideoAsSent(chatId, date);
 
             const videoDurationMs = timeToMilliseconds(time);
@@ -675,13 +679,14 @@ bot.onText(/\/today/, async (msg) => {
         }
 
         if (date === today) {
-            const thumbnailUrl = getYouTubeThumbnail(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
-            await bot.sendPhoto(chatId, thumbnailUrl, {
+            const previewUrl = getYouTubePreview(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
+
+            await bot.sendPhoto(chatId, previewUrl, {
                 caption: `Сегодняшняя тренировка
 
 Автор: ${author}
 Длительность: ${time}
-Направление: ${type}
+Направление: ${formattedType}
 Сложность: ${getDifficultyStars(level)}
 ВПН: ${url.includes('youtube') ? 'нужен' : 'не нужен'}
 ${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
@@ -697,6 +702,7 @@ ${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
                     ],
                 },
             });
+            await trackVideoClick(chatId, null, author, time, type, level)
 
             return;
         }
@@ -1200,7 +1206,7 @@ async function testConnection() {
     }
 }
 
-function getYouTubeThumbnail(videoUrl) {
+function getYouTubePreview(videoUrl) {
     const videoId = videoUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
 
     if (videoId && videoId[1]) {
@@ -1209,4 +1215,38 @@ function getYouTubeThumbnail(videoUrl) {
 
     // Если не YouTube или не удалось извлечь ID, можно использовать дефолтное изображение
     return null;
+}
+
+async function trackVideoClick(chatId, firstName, author, time, type, level) {
+    try {
+        const today = new Date().toLocaleDateString('ru-RU', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+        const timeStr = new Date().toLocaleTimeString('ru-RU');
+
+        await sheets.spreadsheets.values.append({
+            spreadsheetId: GOOGLE_SHEETS_ID,
+            range: 'Клики!A:G',
+            valueInputOption: 'USER_ENTERED',
+            resource: {
+                values: [[
+                    today,
+                    timeStr,
+                    chatId,
+                    firstName,
+                    author,
+                    time,
+                    type,
+                    level,
+                ]],
+            },
+        });
+
+        return true;
+    } catch (error) {
+        console.error('Ошибка записи клика:', error);
+        return false;
+    }
 }
