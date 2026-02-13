@@ -126,29 +126,14 @@ async function sendVideoNotification(row) {
         }
 
         try {
-            const previewUrl = getYouTubePreview(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
-
-            await bot.sendPhoto(chatId, previewUrl, {
-                caption: `Сегодняшняя тренировка
+            await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
 
 Автор: ${author}
 Длительность: ${time}
 Направление: ${type}
 Сложность: ${getDifficultyStars(level)}
 ВПН: ${url.includes('youtube') ? 'нужен' : 'не нужен'}
-${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
-                parse_mode: 'Markdown',
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: 'Смотреть видео',
-                                url,
-                            },
-                        ],
-                    ],
-                },
-            });
+${comment ? `Комментарий: ${comment}` : ''}`);
             await markVideoAsSent(chatId, date);
 
             const videoDurationMs = timeToMilliseconds(time);
@@ -678,29 +663,14 @@ bot.onText(/\/today/, async (msg) => {
         }
 
         if (date === today) {
-            const previewUrl = getYouTubePreview(url) || 'https://via.placeholder.com/1280x720.png?text=Video+Preview';
-
-            await bot.sendPhoto(chatId, previewUrl, {
-                caption: `Сегодняшняя тренировка
+            await bot.sendMessage(chatId, `Сегодняшнее видео: ${url}
 
 Автор: ${author}
 Длительность: ${time}
 Направление: ${formattedType}
 Сложность: ${getDifficultyStars(level)}
 ВПН: ${url.includes('youtube') ? 'нужен' : 'не нужен'}
-${comment ? `\n💬 Комментарий: ${comment}` : ''}`,
-                parse_mode: 'Markdown',
-                reply_markup: {
-                    inline_keyboard: [
-                        [
-                            {
-                                text: 'Смотреть видео',
-                                url,
-                            },
-                        ],
-                    ],
-                },
-            });
+${comment ? `Комментарий: ${comment}` : ''}`);
 
             return;
         }
@@ -1202,15 +1172,4 @@ async function testConnection() {
 
         return false;
     }
-}
-
-function getYouTubePreview(videoUrl) {
-    const videoId = videoUrl.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-
-    if (videoId && videoId[1]) {
-        return `https://img.youtube.com/vi/${videoId[1]}/maxresdefault.jpg`;
-    }
-
-    // Если не YouTube или не удалось извлечь ID, можно использовать дефолтное изображение
-    return null;
 }
