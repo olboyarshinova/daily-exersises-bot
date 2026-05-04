@@ -1,19 +1,16 @@
 # Telegram Video Notification Bot
 
-Этот бот предназначен для автоматической рассылки видео с тренировками по расписанию и сбора обратной связи от пользователей.
+This bot is designed to automatically send workout videos according to a schedule and collect feedback from users.
 
-## 🚀 Основные функции
+## 🚀 Key Features
+- Automatic video distribution at scheduled times
+- Notification schedule management
+- Feedback and rating collection
+- Error reporting
+- Daily analytics
 
-- Автоматическая рассылка видео по заданному времени
-- Поддержка расписания уведомлений
-- Сбор обратной связи и оценок
-- Отчеты об ошибках
-- Ежедневная аналитика
-
-## 📦 Технологии
-
+📦 Technologies
 - Node.js
 - Telegram Bot API
 - Google Sheets API
 - SQLite
-
