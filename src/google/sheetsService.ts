@@ -91,7 +91,7 @@ export async function saveCommentToSheet(
     return true;
   } catch (error) {
     console.error('Ошибка сохранения в Google Sheets:', error, userId);
-    throw new Error('Не удалось сохранить комментарий');
+    throw new Error('Не удалось сохранить комментарий', { cause: error });
   }
 }
 

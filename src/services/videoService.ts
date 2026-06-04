@@ -1,17 +1,7 @@
 import type TelegramBot from 'node-telegram-bot-api';
-import {
-  getNotificationRecipients,
-  updateNotificationTime,
-} from '../db/userRepository';
-import {
-  checkIfVideoSentToday,
-  markVideoAsSent,
-} from '../db/sentVideosRepository';
-import {
-  getSheetData,
-  getTodayVideo,
-  type WorkoutVideo,
-} from '../google/sheetsService';
+import { getNotificationRecipients, updateNotificationTime } from '../db/userRepository';
+import { checkIfVideoSentToday, markVideoAsSent } from '../db/sentVideosRepository';
+import { getSheetData, getTodayVideo, type WorkoutVideo } from '../google/sheetsService';
 import { getCurrentTimeHHMM, getTodayDayMonth } from '../utils/date';
 import { getDifficultyStars } from '../utils/format';
 import { timeToMilliseconds } from '../utils/time';
@@ -36,7 +26,9 @@ export async function checkAndSendNotifications(
 
     console.log(`Найдено ${recipients.length} пользователей для уведомления в ${currentTime}`);
     await Promise.all(
-      recipients.map((row) => sendVideoNotification(bot, row.chatId, todayVideo, userTimers, userVideoState)),
+      recipients.map((row) =>
+        sendVideoNotification(bot, row.chatId, todayVideo, userTimers, userVideoState),
+      ),
     );
   } catch (error) {
     console.error('Ошибка в checkAndSendNotifications:', error);
@@ -68,9 +60,12 @@ export async function sendVideoNotification(
     console.error(`Ошибка в sendVideoNotification (${chatId}):`, error);
 
     try {
-      await bot.sendMessage(chatId, `⚠️ Произошла ошибка при отправке видео. Попробуйте позже.
+      await bot.sendMessage(
+        chatId,
+        `⚠️ Произошла ошибка при отправке видео. Попробуйте позже.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+      );
     } catch (sendError) {
       console.error('Ошибка при отправке сообщения об ошибке:', chatId, sendError);
     }
@@ -95,9 +90,12 @@ export async function saveNotificationTime(
     await bot.sendMessage(chatId, `Теперь уведомления будут приходить в ${time}.`);
   } catch (error) {
     console.error(`Ошибка при сохранении времени для ${chatId}:`, error);
-    await bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении времени.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Произошла ошибка при сохранении времени.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
   }
 }
 
@@ -105,9 +103,12 @@ export async function sendTodayVideo(bot: TelegramBot, chatId: ChatId): Promise<
   const video = await getTodayVideo();
 
   if (!video) {
-    await bot.sendMessage(chatId, `⚠️ На сегодня видео не найдено.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ На сегодня видео не найдено.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
     return;
   }
 
@@ -118,9 +119,12 @@ export async function sendVideoList(bot: TelegramBot, chatId: ChatId): Promise<v
   const data = await getSheetData();
 
   if (!data) {
-    await bot.sendMessage(chatId, `⚠️ Данные не получены.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Данные не получены.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
     return;
   }
 
@@ -173,36 +177,39 @@ function scheduleRatingReminder(
     delete userTimers[chatId];
   }
 
-  userTimers[chatId] = setTimeout(async () => {
-    try {
-      await bot.sendMessage(
-        chatId,
-        `Оцените сегодняшнюю тренировку.
+  userTimers[chatId] = setTimeout(
+    async () => {
+      try {
+        await bot.sendMessage(
+          chatId,
+          `Оцените сегодняшнюю тренировку.
 Ваша оценка улучшит подбор упражнений!`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [
-                { text: '1', callback_data: 'rate_1' },
-                { text: '2', callback_data: 'rate_2' },
-                { text: '3', callback_data: 'rate_3' },
-                { text: '4', callback_data: 'rate_4' },
-                { text: '5', callback_data: 'rate_5' },
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '1', callback_data: 'rate_1' },
+                  { text: '2', callback_data: 'rate_2' },
+                  { text: '3', callback_data: 'rate_3' },
+                  { text: '4', callback_data: 'rate_4' },
+                  { text: '5', callback_data: 'rate_5' },
+                ],
+                [{ text: 'Пропустить', callback_data: 'skip_rating' }],
               ],
-              [{ text: 'Пропустить', callback_data: 'skip_rating' }],
-            ],
+            },
           },
-        },
-      );
+        );
 
-      userVideoState[chatId] = {
-        videoUrl: video.url || '',
-        date: video.date,
-      };
-    } catch (error) {
-      console.error('Ошибка при отправке напоминания:', error);
-    }
-  }, videoDurationMs + 60000 * 3);
+        userVideoState[chatId] = {
+          videoUrl: video.url || '',
+          date: video.date,
+        };
+      } catch (error) {
+        console.error('Ошибка при отправке напоминания:', error);
+      }
+    },
+    videoDurationMs + 60000 * 3,
+  );
 }
 
 function formatVideoMessage(video: WorkoutVideo, normalizeType = false): string {

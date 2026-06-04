@@ -11,10 +11,10 @@ export async function checkIfVideoSentToday(chatId: ChatId, date: string): Promi
 }
 
 export async function markVideoAsSent(chatId: ChatId, date: string): Promise<void> {
-  const result = await run(
-    'INSERT OR IGNORE INTO sent_videos (chatId, date) VALUES (?, ?)',
-    [chatId, date],
-  );
+  const result = await run('INSERT OR IGNORE INTO sent_videos (chatId, date) VALUES (?, ?)', [
+    chatId,
+    date,
+  ]);
 
   if (result.changes > 0) {
     console.log(`Отмечено отправленное видео для ${chatId}`);

@@ -3,6 +3,7 @@
 This bot is designed to automatically send workout videos according to a schedule and collect feedback from users.
 
 ## 🚀 Key Features
+
 - Automatic video distribution at scheduled times
 - Notification schedule management
 - Feedback and rating collection
@@ -10,6 +11,7 @@ This bot is designed to automatically send workout videos according to a schedul
 - Daily analytics
 
 📦 Technologies
+
 - Node.js + TypeScript
 - Telegram Bot API
 - Google Sheets API
@@ -27,7 +29,11 @@ This bot is designed to automatically send workout videos according to a schedul
 
 ## Scripts
 
+- `nvm use` - switch to the project's Node.js version
 - `npm run dev` - run the bot from TypeScript sources
 - `npm run build` - compile TypeScript to `dist`
+- `npm run lint` - check TypeScript code with ESLint
+- `npm run format` - format source files with Prettier
+- `npm run test` - run build, lint, and unit tests
 - `npm start` - run compiled bot
 - `npm run stats` - print user/video stats

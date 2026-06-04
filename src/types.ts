@@ -1,5 +1,7 @@
 import type TelegramBot from 'node-telegram-bot-api';
 
+type Timer = ReturnType<typeof setTimeout>;
+
 export type ChatId = number;
 
 export interface UserRow {
@@ -39,7 +41,7 @@ export interface UserState {
   waitingForErrorReport?: boolean;
   type?: 'feedback';
   rating?: number;
-  timeout?: NodeJS.Timeout;
+  timeout?: Timer;
   hasMedia?: boolean;
   mediaFileId?: string | null;
   mediaType?: 'photo' | 'document' | null;
@@ -60,6 +62,6 @@ export interface ErrorReportData {
 
 export type UserStates = Record<ChatId, UserState>;
 export type UserVideoStates = Record<ChatId, UserVideoState | undefined>;
-export type UserTimers = Record<ChatId, NodeJS.Timeout | undefined>;
+export type UserTimers = Record<ChatId, Timer | undefined>;
 
 export type BotMessage = TelegramBot.Message;

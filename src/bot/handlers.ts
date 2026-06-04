@@ -1,19 +1,9 @@
 import type TelegramBot from 'node-telegram-bot-api';
 import { deactivateUser, findUserByChatId, upsertUser } from '../db/userRepository';
 import { resetVideoSentStatus } from '../db/sentVideosRepository';
-import {
-  getCurrentComment,
-  saveCommentToSheet,
-} from '../google/sheetsService';
-import {
-  forwardMediaToAdmin,
-  persistErrorReport,
-} from '../services/reportService';
-import {
-  saveNotificationTime,
-  sendTodayVideo,
-  sendVideoList,
-} from '../services/videoService';
+import { getCurrentComment, saveCommentToSheet } from '../google/sheetsService';
+import { forwardMediaToAdmin, persistErrorReport } from '../services/reportService';
+import { saveNotificationTime, sendTodayVideo, sendVideoList } from '../services/videoService';
 import { getTodayDayMonth } from '../utils/date';
 import { parseNotificationTime } from '../utils/time';
 import type { BotMessage, ChatId, UserStates, UserVideoStates } from '../types';
@@ -76,7 +66,16 @@ export function registerHandlers(
       }
 
       if (data.startsWith('rate_')) {
-        await handleRatingCallback(bot, query.id, chatId, messageId, data, query.from.first_name, userStates, userVideoState);
+        await handleRatingCallback(
+          bot,
+          query.id,
+          chatId,
+          messageId,
+          data,
+          query.from.first_name,
+          userStates,
+          userVideoState,
+        );
         return;
       }
 
@@ -212,7 +211,10 @@ async function handleRatingCallback(
   userStates[chatId].timeout = setTimeout(() => {
     if (userStates[chatId]?.waitingForComment) {
       delete userStates[chatId];
-      bot.sendMessage(chatId, 'Если захотите оставить комментарий позже - используйте команду /comment');
+      void bot.sendMessage(
+        chatId,
+        'Если захотите оставить комментарий позже - используйте команду /comment',
+      );
     }
   }, 300000);
 }
@@ -226,9 +228,12 @@ async function handleManualTimeInput(
   const formattedTime = parseNotificationTime(text);
 
   if (!formattedTime) {
-    await bot.sendMessage(chatId, `⚠️ Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Неверный формат времени. Пожалуйста, введите время в формате HH:mm (например, 9:30 или 07:45)
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
     return;
   }
 
@@ -264,9 +269,12 @@ async function handleStart(bot: TelegramBot, msg: BotMessage): Promise<void> {
     );
   } catch (error) {
     console.error('Ошибка при сохранении данных:', error);
-    await bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении ваших данных.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Произошла ошибка при сохранении ваших данных.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
   }
 }
 
@@ -277,9 +285,12 @@ async function handleMyTime(bot: TelegramBot, chatId: ChatId): Promise<void> {
     if (user) {
       await bot.sendMessage(chatId, `Время уведомлений: ${user.notificationTime || '08:00'}`);
     } else {
-      await bot.sendMessage(chatId, `⚠️ Нет установленного времени.
+      await bot.sendMessage(
+        chatId,
+        `⚠️ Нет установленного времени.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+      );
     }
   } catch (error) {
     console.error('Ошибка при получении данных:', error);
@@ -314,9 +325,12 @@ async function handleComment(
     }
   } catch (error) {
     console.error('Ошибка при обработке комментария:', error);
-    await bot.sendMessage(chatId, `⚠️ Произошла ошибка при сохранении комментария.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Произошла ошибка при сохранении комментария.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
   }
 }
 
@@ -326,7 +340,7 @@ function waitForUserComment(
   timeout: number,
 ): Promise<BotMessage | null> {
   return new Promise((resolve) => {
-    const listener = async (msg: BotMessage) => {
+    const listener = (msg: BotMessage) => {
       if (msg.chat.id === chatId && msg.text && !msg.text.startsWith('/')) {
         cleanup();
         resolve(msg);
@@ -345,7 +359,11 @@ function waitForUserComment(
   });
 }
 
-async function handleReport(bot: TelegramBot, chatId: ChatId, userStates: UserStates): Promise<void> {
+async function handleReport(
+  bot: TelegramBot,
+  chatId: ChatId,
+  userStates: UserStates,
+): Promise<void> {
   await bot.sendMessage(
     chatId,
     `🛠 Сообщить об ошибке.
@@ -368,7 +386,10 @@ async function handleReport(bot: TelegramBot, chatId: ChatId, userStates: UserSt
     waitingForErrorReport: true,
     timeout: setTimeout(async () => {
       if (userStates[chatId]?.waitingForErrorReport) {
-        await bot.sendMessage(chatId, 'Время на отправку отчета истекло. Используйте /report когда будете готовы.');
+        await bot.sendMessage(
+          chatId,
+          'Время на отправку отчета истекло. Используйте /report когда будете готовы.',
+        );
         delete userStates[chatId];
       }
     }, 300000),
@@ -452,9 +473,12 @@ async function saveFeedbackComment(
     clearTimeout(userState?.timeout);
   } catch (error) {
     console.error('Ошибка сохранения отзыва:', error);
-    await bot.sendMessage(chatId, `⚠️ Не удалось отправить отзыв. Попробуйте позже.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Не удалось отправить отзыв. Попробуйте позже.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
   }
 }
 
@@ -489,16 +513,23 @@ async function handleReportMedia(
       mediaFileId: fileData.fileId,
       mediaType: fileData.mediaType,
     };
-    await bot.sendMessage(chatId, '📎 Медиафайл получен! Теперь, пожалуйста, опишите проблему текстом:', {
-      reply_markup: {
-        inline_keyboard: [[{ text: 'Отменить отправку', callback_data: 'report_cancel' }]],
+    await bot.sendMessage(
+      chatId,
+      '📎 Медиафайл получен! Теперь, пожалуйста, опишите проблему текстом:',
+      {
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Отменить отправку', callback_data: 'report_cancel' }]],
+        },
       },
-    });
+    );
   } catch (error) {
     console.error('Ошибка обработки медиафайла:', error);
-    await bot.sendMessage(chatId, `⚠️ Не удалось обработать файл. Попробуйте отправить его еще раз.
+    await bot.sendMessage(
+      chatId,
+      `⚠️ Не удалось обработать файл. Попробуйте отправить его еще раз.
 
-Вы можете уведомить об ошибке по команде /report`);
+Вы можете уведомить об ошибке по команде /report`,
+    );
   }
 }
 

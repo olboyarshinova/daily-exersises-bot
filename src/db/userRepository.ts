@@ -23,7 +23,10 @@ export async function upsertUser(user: UserRow, notificationTime = '08:00'): Pro
   );
 }
 
-export async function updateNotificationTime(chatId: ChatId, time: string): Promise<UserRow | null> {
+export async function updateNotificationTime(
+  chatId: ChatId,
+  time: string,
+): Promise<UserRow | null> {
   const user = await findUserByChatId(chatId);
 
   if (!user) {
@@ -65,7 +68,15 @@ export async function getDailyStats(todayFormatted: string): Promise<DailyStats>
     [todayFormatted, todayFormatted],
   );
 
-  return stats ?? { total_users: 0, active_users: 0, inactive_users: 0, received_today: 0, actually_received: 0 };
+  return (
+    stats ?? {
+      total_users: 0,
+      active_users: 0,
+      inactive_users: 0,
+      received_today: 0,
+      actually_received: 0,
+    }
+  );
 }
 
 export async function getUsersWithoutVideo(todayFormatted: string): Promise<ProblemUser[]> {

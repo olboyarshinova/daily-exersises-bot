@@ -3,3 +3,4 @@
 /dist
 /my-database.db
 /.env
+tests/**/*.js

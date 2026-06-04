@@ -1,4 +1,7 @@
+import { createRequire } from 'node:module';
 import path from 'node:path';
+
+const localRequire = createRequire(path.resolve(process.cwd(), 'constants.js'));
 
 interface LocalConstants {
   TELEGRAM_BOT_TOKEN?: string;
@@ -34,8 +37,7 @@ if (Number.isNaN(ADMIN_ID)) {
 function loadLocalConstants(): LocalConstants {
   try {
     // constants.js is intentionally gitignored and kept as a local secret file.
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    return require(path.resolve(process.cwd(), 'constants.js')) as LocalConstants;
+    return localRequire(path.resolve(process.cwd(), 'constants.js')) as LocalConstants;
   } catch {
     return {};
   }
@@ -46,7 +48,11 @@ function getRequiredValue(name: string, value: unknown): string {
     throw new Error(`Missing required config value: ${name}`);
   }
 
-  return String(value);
+  if (typeof value === 'string' || typeof value === 'number') {
+    return String(value);
+  }
+
+  throw new Error(`Config value must be a string or number: ${name}`);
 }
 
 function parseGoogleCredentials(value: unknown): unknown {
