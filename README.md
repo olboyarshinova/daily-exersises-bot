@@ -1,6 +1,6 @@
 # Telegram Video Notification Bot
 
-**[Try FlexVibeBot on Telegram](https://t.me/FlexVibeBot)**
+[Try the bot on Telegram](https://t.me/FlexVibeBot) (@FlexVibeBot)
 
 This bot is designed to automatically send workout videos according to a schedule and collect feedback from users.
 
